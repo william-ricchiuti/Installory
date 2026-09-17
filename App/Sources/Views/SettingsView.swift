@@ -254,7 +254,7 @@ private struct AboutTab: View {
 
             Section {
                 Link("Website", destination: URL(string: "https://installory.app/")!)
-                Link("GitHub repository", destination: URL(string: "https://github.com/willytop8/Installory")!)
+                Link("GitHub repository", destination: URL(string: "https://github.com/william-ricchiuti/Installory")!)
                 Link("Support", destination: URL(string: "https://installory.app/support/")!)
             } header: {
                 Text("Links")
