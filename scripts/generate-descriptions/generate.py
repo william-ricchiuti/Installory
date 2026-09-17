@@ -192,7 +192,7 @@ def normalize_npm(name: str) -> str:
 # HTTP helpers
 # ---------------------------------------------------------------------------
 
-_UA = "Installory-description-generator/1.0 (https://github.com/willytop8/Installory)"
+_UA = "Installory-description-generator/1.0 (https://github.com/william-ricchiuti/Installory)"
 
 
 def _get(url: str, retries: int = 3) -> bytes:
