@@ -497,6 +497,9 @@ struct AppCoordinatorPersistenceTests {
         try PackageDAO(database: database).replaceAll(with: [storedPackage])
 
         let coordinator = AppCoordinator(dataDirectoryOverride: directory)
+        // Pin an inventory section: the default is .dashboard (no cleanup
+        // candidates), and init also restores any persisted sidebar choice.
+        coordinator.sidebarSelection = .all
         coordinator.selectedForCleanup = [storedPackage.id, "brew::no-longer-installed"]
         await coordinator.hydratePersistedState()
 
@@ -540,6 +543,9 @@ struct AppCoordinatorPersistenceTests {
 
         let coordinator = AppCoordinator(dataDirectoryOverride: directory)
         await coordinator.hydratePersistedState()
+        // Pin an inventory section so the result doesn't depend on the
+        // .dashboard default or a persisted sidebar preference.
+        coordinator.sidebarSelection = .all
         coordinator.selectedPackage = storedPackage
         coordinator.searchQuery = "CELLAR/FFMPEG"
         coordinator.reconcileSelectedPackageForCurrentSidebar()
