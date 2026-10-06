@@ -14,9 +14,6 @@ permission settings those tools use. It never changes anything, never runs a
 command, and never sends your data anywhere: it has no internet code of its
 own.
 
-<!-- TODO: these screenshots predate the new checkup Home and the AI Setup
-screen. Replace them before the next release (see docs/app-store-listing.md
-for the screenshot plan). -->
 ![Installory inventory](files/screenshots/main-window.png)
 
 ## Capabilities

@@ -83,9 +83,13 @@ the app without granting filesystem access.
    masked secret), every "Copy Prompt" menu item, Copy My Setup, and the
    "How to run this" section of a cleanup script. Check Command-F (see Known
    advisories).
-5. Replace the screenshots in `files/screenshots/` and the App Store listing
-   images; the current ones predate the new Home. Listing text drafts are in
-   [docs/app-store-listing.md](docs/app-store-listing.md).
+5. Upload the five 2880×1800 screenshots in `files/screenshots/app-store/`
+   (rendered from sample data; the sample-data banner is visible). Pick the
+   subtitle, promotional text and keywords from
+   [docs/app-store-listing.md](docs/app-store-listing.md). Version and build
+   are still 1.5.0 (11) in `project.yml` and `App/Info.plist`: set
+   `CFBundleShortVersionString` to `1.6.0` and `CFBundleVersion` to `12` in
+   both, then regenerate the Xcode project.
 6. From updated `main`, select the owner Apple Developer Team with managed
    distribution signing. Do not commit a personal team identifier.
 7. Select Any Mac / Generic Mac, choose Product → Archive, and confirm version,
@@ -130,8 +134,6 @@ repository only through its own reviewed deploy.
   Edit → Find Packages command (Command-F) that focuses the visible search
   field. Confirm it in the Release build on List, Table, and the other
   searchable screens before submitting.
-- **Screenshots are out of date.** `files/screenshots/` and the store images
-  show the 1.5.0 Home.
 - **App Store rating prompt.** The app now asks for a rating after a positive
   scan, at most once per version, never in sample-data mode or during
   onboarding, and only after a scan the user started (never the automatic
