@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "notes": {
+      "command": "node",
+      "args": ["./scripts/notes-server.js"]
+    },
+    "postgres": {
+      "command": "uvx",
+      "args": ["mcp-server-postgres", "postgresql://localhost/dev"]
+    },
+    "helper": {
+      "command": "./bin/helper"
+    }
+  }
+}

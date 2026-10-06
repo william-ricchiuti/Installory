@@ -1,0 +1,17 @@
+{
+  // opencode config with comments
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "sentry": {
+      "type": "remote",
+      "url": "https://mcp.sentry.dev/mcp",
+      "headers": { "Authorization": "Bearer {env:SENTRY_TOKEN}" }
+    },
+    "local-tool": {
+      "type": "local",
+      "command": ["docker", "run", "-i", "-e", "API_TOKEN=supersecretvalue99", "example/tool"],
+      "environment": { "OPENAI_API_KEY": "sk-proj-FAKEOPENAIKEYabcdefghijklmnop" },
+      "enabled": false,
+    },
+  },
+}

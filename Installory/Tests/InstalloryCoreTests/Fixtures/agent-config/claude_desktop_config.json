@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github@0.5.0"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "" }
+    },
+    "docs": {
+      "url": "https://mcp.docs.example.com/sse?api_key=XYZSECRETQUERYVALUE"
+    }
+  },
+  "globalShortcut": "Alt+Space"
+}

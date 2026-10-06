@@ -1,0 +1,48 @@
+{
+  "numStartups": 412,
+  "installMethod": "native",
+  "userID": "fake-user-id-0f3c9a7e5d",
+  "oauthAccount": {
+    "accountUuid": "fake-account-uuid-1234",
+    "emailAddress": "fake.person@example.com",
+    "organizationName": "Fake Org",
+    "accessToken": "sk-ant-oat01-SUPERSECRETOAUTHVALUE1234567890"
+  },
+  "primaryApiKey": "sk-ant-api03-FAKEPRIMARYKEYDONOTSURFACE0000",
+  "customApiKeyResponses": { "approved": ["FAKEAPPROVEDKEYSUFFIX"] },
+  "mcpServers": {
+    "github": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "env": { "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_FAKEGITHUBTOKENabcdefghijklmnop12" }
+    },
+    "filesystem": {
+      "command": "/opt/missing/bin/fs-server",
+      "args": ["/Users/tester/Documents"]
+    },
+    "linear": {
+      "type": "sse",
+      "url": "https://mcp.linear.app/sse"
+    }
+  },
+  "projects": {
+    "/Users/tester/code/app": {
+      "allowedTools": [],
+      "history": [{ "display": "PRIVATE PROMPT TEXT do not surface", "pastedContents": {} }],
+      "lastSessionId": "fake-session-id-xyz",
+      "mcpServers": {
+        "postgres": {
+          "command": "uvx",
+          "args": ["mcp-server-postgres", "--password", "hunter2hunter2"],
+          "env": { "DATABASE_URL": "${DATABASE_URL}" }
+        }
+      },
+      "disabledMcpjsonServers": ["notes"]
+    },
+    "/Users/tester/code/other": {
+      "history": [{ "display": "ANOTHER PRIVATE PROMPT" }]
+    }
+  },
+  "cachedStatsigGates": { "fake_gate": true }
+}

@@ -1,0 +1,19 @@
+// VS Code MCP configuration (JSON with comments)
+{
+  "inputs": [
+    { "type": "promptString", "id": "context7-key", "description": "Context7 key", "password": true }
+  ],
+  "servers": {
+    /* remote server with a prompted key */
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": { "Authorization": "Bearer ${input:context7-key}" },
+    },
+    "github": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"], // trailing comment
+    },
+  },
+}
