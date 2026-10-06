@@ -1796,7 +1796,6 @@ final class AppCoordinator {
         }
 
         await captureAutomaticFirstScanSnapshotIfNeeded()
-        requestReviewIfAppropriate()
 
         if let dao = scanRunDAO {
             let scanRun = ScanRun(
@@ -1834,6 +1833,9 @@ final class AppCoordinator {
         // MARK: AI setup audit (home folder grant required)
         guard !Task.isCancelled else { return }
         await runAgentConfigAudit(grantedURLs: accessedURLs)
+        // After the audit, so the checkup that gates the review request
+        // reflects this scan's AI setup findings rather than the previous one.
+        requestReviewIfAppropriate()
 
         // MARK: Provenance collection (gated by user opt-in)
         //

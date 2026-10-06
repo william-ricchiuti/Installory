@@ -159,6 +159,11 @@ enum OnboardingReadsCopy {
         "AI tool settings (~/.claude, ~/.codex, ~/.cursor)",
         "Editor extensions",
     ]
+    static let readsTitle = "Reads"
+    /// The home-folder grant is technically broad, so this is a promise about
+    /// what Installory's code opens, not a claim about what macOS allows.
+    static let neverReadsTitle = "Doesn\u{2019}t open"
+    static let neverReadsLead = "Installory only opens the folders listed under Reads. It doesn\u{2019}t open:"
     static let neverReads = [
         "Documents",
         "Photos",

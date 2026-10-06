@@ -71,4 +71,14 @@ extension ScannerStatus {
     /// ("pipx venv directory not granted or not found") are scanner jargon; a
     /// skip always means the same thing to a person: not here, or not shared.
     static let friendlySkipDescription = "Not found on this Mac, or Installory doesn\u{2019}t have access to its folder yet"
+
+    /// Scan Coverage sentence when the tool is present but its folder isn't granted.
+    static let friendlyAccessNeededDescription = "Allow access to its folder to include it"
+
+    /// True when the scanner was skipped only because its folder isn't granted
+    /// yet (the tool is there; Installory just can't read it).
+    var isAccessNeeded: Bool {
+        if case .skipped(let reason) = self { return reason == ScanCoordinator.accessNeededReason }
+        return false
+    }
 }

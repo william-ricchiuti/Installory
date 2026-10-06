@@ -114,7 +114,10 @@ public actor ScanCoordinator {
 }
 
 extension ScanCoordinator {
-    static let accessNeededReason = "Installory needs read access to this tool's folder"
+    /// Skip reason used when the sandbox refused to read a tool's folder
+    /// because it hasn't been granted yet. The app matches on it to tell
+    /// "not granted" apart from "not installed".
+    public static let accessNeededReason = "Installory needs read access to this tool's folder"
 
     /// True when `error`, or any error it wraps, is a file-permission refusal.
     nonisolated static func isPermissionDenied(_ error: any Error) -> Bool {

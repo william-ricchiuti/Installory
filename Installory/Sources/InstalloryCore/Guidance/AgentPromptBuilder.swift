@@ -42,10 +42,11 @@ public struct AgentPromptBuilder: Sendable, Equatable {
         verdict: RemovalSafetyVerdict?,
         installedBy: String? = nil
     ) -> AgentPrompt {
+        let name = text(package.name)
         var facts: [String] = [
-            "- Name: \(package.name)",
+            "- Name: \(name)",
             "- Installed with: \(Self.managerName(package.manager))",
-            "- Version: \(package.version)",
+            "- Version: \(text(package.version))",
         ]
         if let path = package.installPath {
             facts.append("- Location: \(redactor.display(path))")
@@ -53,15 +54,15 @@ public struct AgentPromptBuilder: Sendable, Equatable {
         facts.append("- Other installed packages that depend on it: \(dependentsCount)")
         if let verdict {
             var line = "- Installory's safety check: \(Self.safetyLabel(verdict.safety))"
-            if let reason = verdict.reasons.first { line += " (\(reason))" }
+            if let reason = verdict.reasons.first { line += " (\(text(reason)))" }
             facts.append(line)
         }
         if let installedBy, !installedBy.isEmpty {
-            facts.append("- Installed by: \(installedBy)")
+            facts.append("- Installed by: \(text(installedBy))")
         }
 
         let body = compose([
-            "\(greeting)Please help me decide whether to remove \(package.name) from my Mac.",
+            "\(greeting)Please help me decide whether to remove \(name) from my Mac.",
             facts.joined(separator: "\n"),
             """
             Please:
@@ -70,7 +71,7 @@ public struct AgentPromptBuilder: Sendable, Equatable {
             3. If it is, show me the exact removal command and explain it before running anything.
             """,
         ])
-        return AgentPrompt(title: "Ask about removing \(package.name)", body: body, targetAgent: agent)
+        return AgentPrompt(title: "Ask about removing \(name)", body: body, targetAgent: agent)
     }
 
     // MARK: - (b) Duplicate group
@@ -83,9 +84,10 @@ public struct AgentPromptBuilder: Sendable, Equatable {
         for group: DuplicateGroup,
         standings: [String: PathStanding] = [:]
     ) -> AgentPrompt {
+        let groupName = text(group.name)
         var lines: [String] = []
         for package in group.packages.sorted(by: { $0.id < $1.id }) {
-            var line = "- \(Self.managerName(package.manager)), version \(package.version)"
+            var line = "- \(Self.managerName(package.manager)), version \(text(package.version))"
             if let path = package.installPath {
                 line += ", at \(redactor.display(path))"
             }
@@ -99,8 +101,8 @@ public struct AgentPromptBuilder: Sendable, Equatable {
 
         let knowsWinner = standings.values.contains(.wins)
         let pathStep = knowsWinner
-            ? "1. Confirm which copy actually runs when I type \(group.name) (for example with `which -a \(group.name)`)."
-            : "1. Find out which copy actually runs when I type \(group.name) (for example with `which -a \(group.name)`)."
+            ? "1. Confirm which copy actually runs when I type \(groupName) (for example with `which -a \(groupName)`)."
+            : "1. Find out which copy actually runs when I type \(groupName) (for example with `which -a \(groupName)`)."
 
         var steps = [
             pathStep,
@@ -113,11 +115,11 @@ public struct AgentPromptBuilder: Sendable, Equatable {
         }
 
         let body = compose([
-            "\(greeting)I have \(group.name) installed \(group.packages.count) times, by different installers:",
+            "\(greeting)I have \(groupName) installed \(group.packages.count) times, by different installers:",
             lines.joined(separator: "\n"),
             "Please:\n" + steps.joined(separator: "\n"),
         ])
-        return AgentPrompt(title: "Ask about duplicate \(group.name)", body: body, targetAgent: agent)
+        return AgentPrompt(title: "Ask about duplicate \(groupName)", body: body, targetAgent: agent)
     }
 
     // MARK: - (c) Cleanup selection
@@ -138,7 +140,7 @@ public struct AgentPromptBuilder: Sendable, Equatable {
         }
         let limit = max(0, maxListed)
         var lines = sorted.prefix(limit).map { package -> String in
-            var line = "- \(package.name) (\(Self.managerName(package.manager)) \(package.version))"
+            var line = "- \(text(package.name)) (\(Self.managerName(package.manager)) \(text(package.version)))"
             if let verdict = verdicts[package.id] {
                 line += " — \(Self.safetyLabel(verdict.safety))"
             }
@@ -172,11 +174,12 @@ public struct AgentPromptBuilder: Sendable, Equatable {
     public func findingPrompt(for finding: PromptFinding) -> AgentPrompt {
         let files = finding.filePaths.map { "- \(redactor.display($0))" }
         let fileBlock = files.isEmpty ? nil : files.joined(separator: "\n")
+        let title = text(finding.title)
 
         switch finding.kind {
         case .general:
             let body = compose([
-                "\(greeting)Installory flagged something on my Mac: \(finding.title).",
+                "\(greeting)Installory flagged something on my Mac: \(title).",
                 redactor.redact(text: finding.explanation),
                 fileBlock.map { "Files involved:\n\($0)" },
                 """
@@ -185,7 +188,7 @@ public struct AgentPromptBuilder: Sendable, Equatable {
                 2. If it is, suggest the smallest fix and explain it before changing anything.
                 """,
             ])
-            return AgentPrompt(title: "Ask about: \(finding.title)", body: body, targetAgent: agent)
+            return AgentPrompt(title: "Ask about: \(title)", body: body, targetAgent: agent)
 
         case .exposedSecret(let rawKeyName):
             let keyName = Self.sanitizedKeyName(rawKeyName)
@@ -225,7 +228,7 @@ public struct AgentPromptBuilder: Sendable, Equatable {
             let shown = duplicateGroups.prefix(10)
             for group in shown {
                 let managers = Array(Set(group.packages.map { Self.managerName($0.manager) })).sorted()
-                summary.append("- \(group.name) (\(managers.joined(separator: ", ")))")
+                summary.append("- \(text(group.name)) (\(managers.joined(separator: ", ")))")
             }
             if duplicateGroups.count > shown.count {
                 summary.append("- …and \(duplicateGroups.count - shown.count) more")
@@ -274,6 +277,12 @@ public struct AgentPromptBuilder: Sendable, Equatable {
     private var greeting: String {
         if let name = agent.displayName { return "Hi \(name). " }
         return ""
+    }
+
+    /// Free text from findings and inventory can carry absolute paths; render
+    /// the home folder as `~` before it goes into a prompt.
+    private func text(_ value: String) -> String {
+        redactor.redact(text: value)
     }
 
     private func compose(_ sections: [String?]) -> String {

@@ -100,6 +100,12 @@ struct OnboardingViewTests {
         for item in ["documents", "photos", "mail", "browser", "keychain"] {
             #expect(never.contains(item))
         }
+        // The home grant is broad, so the copy promises what Installory's code
+        // opens rather than claiming it "never reads" anything.
+        #expect(OnboardingReadsCopy.neverReadsLead == "Installory only opens the folders listed under Reads. It doesn\u{2019}t open:")
+        #expect(OnboardingReadsCopy.neverReadsLead.contains(OnboardingReadsCopy.readsTitle))
+        #expect(OnboardingReadsCopy.neverReadsTitle == "Doesn\u{2019}t open")
+        #expect(!OnboardingReadsCopy.neverReadsTitle.lowercased().contains("never"))
     }
 
     // MARK: Install history

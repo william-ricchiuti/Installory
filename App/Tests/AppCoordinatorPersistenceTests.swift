@@ -497,6 +497,8 @@ struct AppCoordinatorPersistenceTests {
         try PackageDAO(database: database).replaceAll(with: [storedPackage])
 
         let coordinator = AppCoordinator(dataDirectoryOverride: directory)
+        // Pin the section so a sidebar choice persisted by a local app run can't hide the package.
+        coordinator.sidebarSelection = .all
         coordinator.selectedForCleanup = [storedPackage.id, "brew::no-longer-installed"]
         await coordinator.hydratePersistedState()
 
@@ -540,6 +542,7 @@ struct AppCoordinatorPersistenceTests {
 
         let coordinator = AppCoordinator(dataDirectoryOverride: directory)
         await coordinator.hydratePersistedState()
+        coordinator.sidebarSelection = .all
         coordinator.selectedPackage = storedPackage
         coordinator.searchQuery = "CELLAR/FFMPEG"
         coordinator.reconcileSelectedPackageForCurrentSidebar()
@@ -614,6 +617,49 @@ struct AppCoordinatorPersistenceTests {
             isDemoMode: false,
             scanStatuses: skippedCoverage
         ) == .noInventory)
+
+        // A tool whose folder the sandbox refused is a coverage gap, not "not installed".
+        var accessNeededCoverage = skippedCoverage
+        accessNeededCoverage[.cargo] = .skipped(reason: ScanCoordinator.accessNeededReason)
+        #expect(AnalysisEmptyState.resolve(
+            packageCount: 2,
+            isScanning: false,
+            isDemoMode: false,
+            scanStatuses: accessNeededCoverage
+        ) == .foldersNotGranted)
+        // A real failure still wins over a missing grant.
+        accessNeededCoverage[.npm] = .failed(reason: "fixture failure", durationMs: 1)
+        #expect(AnalysisEmptyState.resolve(
+            packageCount: 2,
+            isScanning: false,
+            isDemoMode: false,
+            scanStatuses: accessNeededCoverage
+        ) == .incompleteCoverage)
+    }
+
+    @Test("Scan Coverage tells 'not granted' apart from 'not installed'")
+    func accessNeededCoverageCopy() {
+        let accessNeeded = ScannerStatus.skipped(reason: ScanCoordinator.accessNeededReason)
+        #expect(accessNeeded.isAccessNeeded)
+        #expect(!ScannerStatus.skipped(reason: "RubyGems not installed").isAccessNeeded)
+        #expect(!ScannerStatus.failed(reason: ScanCoordinator.accessNeededReason, durationMs: 1).isAccessNeeded)
+        #expect(ScannerStatus.friendlyAccessNeededDescription == "Allow access to its folder to include it")
+    }
+
+    @Test("Rating prompt is requested after the AI setup audit so the checkup is current")
+    func reviewRequestFollowsAgentConfigAudit() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/AppCoordinator.swift"),
+            encoding: .utf8
+        )
+        let scanStart = try #require(source.range(of: "    func scan() async {"))
+        let scanBody = source[scanStart.upperBound...]
+        let audit = try #require(scanBody.range(of: "await runAgentConfigAudit(grantedURLs: accessedURLs)"))
+        let review = try #require(scanBody.range(of: "requestReviewIfAppropriate()"))
+        #expect(audit.upperBound <= review.lowerBound)
     }
 
     @Test("APP-F2: Duplicates and Review Candidates expose cleanup controls")

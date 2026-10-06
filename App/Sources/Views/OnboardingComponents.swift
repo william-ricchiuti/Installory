@@ -108,18 +108,36 @@ struct OnboardingReadsList: View {
 
     @ViewBuilder
     private var columns: some View {
-        column(title: "Reads", systemImage: "eye", items: OnboardingReadsCopy.reads, tint: .accentColor)
+        column(title: OnboardingReadsCopy.readsTitle, systemImage: "eye", items: OnboardingReadsCopy.reads, tint: .accentColor)
             .frame(maxWidth: .infinity, alignment: .leading)
-        column(title: "Never reads", systemImage: "eye.slash", items: OnboardingReadsCopy.neverReads, tint: .secondary)
+        column(
+            title: OnboardingReadsCopy.neverReadsTitle,
+            lead: OnboardingReadsCopy.neverReadsLead,
+            systemImage: "eye.slash",
+            items: OnboardingReadsCopy.neverReads,
+            tint: .secondary
+        )
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func column(title: String, systemImage: String, items: [String], tint: Color) -> some View {
+    private func column(
+        title: String,
+        lead: String? = nil,
+        systemImage: String,
+        items: [String],
+        tint: Color
+    ) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Label(title, systemImage: systemImage)
                 .font(.callout.weight(.semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(tint)
+            if let lead {
+                Text(lead)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             ForEach(items, id: \.self) { item in
                 Text("\u{2022} \(item)")
                     .font(.callout)
@@ -128,7 +146,7 @@ struct OnboardingReadsList: View {
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title): \(items.joined(separator: ", "))")
+        .accessibilityLabel("\(lead ?? title + ":") \(items.joined(separator: ", "))")
     }
 }
 

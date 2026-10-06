@@ -173,6 +173,106 @@ struct AgentConfigSecretMaskerTests {
         #expect(redacted.contains("curl"))
     }
 
+    @Test("a value that merely contains a reference is still a literal secret")
+    func partialReferencesAreLiteral() {
+        for value in ["hunter2pa$word", "mypassword${X}", "Basic dXNlcjpwYXNz$x", "abc{env:X}def", "${A}secret"] {
+            #expect(!AgentConfigSecretMasker.isReference(value), "\(value) treated as a reference")
+            let pair = AgentConfigSecretMasker.maskedPair(key: "DB_PASSWORD", value: value)
+            #expect(pair.isLiteralSecret)
+            #expect(pair.maskedValue != value)
+        }
+        // Pure references, with or without a scheme or separators, stay verbatim.
+        for value in ["${A}", "$A", "Bearer ${A}", "basic $A", "Token {env:A}", "${USER}:${PASS}", " ${input:x} "] {
+            #expect(AgentConfigSecretMasker.isReference(value), "\(value) not treated as a reference")
+        }
+        #expect(!AgentConfigSecretMasker.isReference("Bearer"))
+        // Argument paths use the same rule.
+        let args = AgentConfigSecretMasker.maskArguments(["--token", "mypassword${X}", "--api-key=hunter2pa$word"])
+        #expect(args.foundSecret)
+        #expect(args.args == ["--token", "mypa…", "--api-key=hunt…"])
+    }
+
+    @Test("credential-carrying flags are masked even without a secret-looking name")
+    func credentialFlags() {
+        let (args, found) = AgentConfigSecretMasker.maskArguments([
+            "-H", "Authorization: Bearer abcdefghijklmnop",
+            "--header", "X-Api-Key: plainvalue123",
+            "--header=Cookie: session=abcdef123",
+            "-H", "Content-Type: application/json",
+            "-H", "Authorization: Bearer ${TOKEN}",
+            "-u", "alice:s3cretpass",
+            "--user=bob:hunter22",
+            "--password", "hunter2hunter2",
+            "-p", "letmein99",
+        ])
+        #expect(found)
+        #expect(args == [
+            "-H", "Authorization: Bearer ••••",
+            "--header", "X-Api-Key: plai…",
+            "--header=Cookie: sess…",
+            "-H", "Content-Type: application/json",
+            "-H", "Authorization: Bearer ${TOKEN}",
+            "-u", "alice:••••",
+            "--user=bob:••••",
+            "--password", "hunt…",
+            "-p", "letm…",
+        ])
+        let joined = args.joined(separator: " ")
+        for secret in ["abcdefghijklmnop", "plainvalue123", "abcdef123", "s3cretpass", "hunter22", "hunter2hunter2", "letmein99"] {
+            #expect(!joined.contains(secret), "leaked \(secret)")
+        }
+        // Ports, docker uid:gid and docker -H hosts are not credentials.
+        let benign = AgentConfigSecretMasker.maskArguments([
+            "-p", "8080", "-p", "127.0.0.1:8080:80/tcp", "-u", "1000:1000", "-H", "unix:///var/run/docker.sock",
+        ])
+        #expect(!benign.foundSecret)
+        #expect(benign.args == ["-p", "8080", "-p", "127.0.0.1:8080:80/tcp", "-u", "1000:1000", "-H", "unix:///var/run/docker.sock"])
+    }
+
+    @Test("free-text arguments with auth schemes or user:pass@ are redacted")
+    func freeTextArguments() {
+        let (args, found) = AgentConfigSecretMasker.maskArguments([
+            "curl -H 'Authorization: Basic dXNlcjpwYXNzd29yZA=='",
+            "alice:hunter2@db.internal:5432/app",
+            "a description with spaces",
+        ])
+        #expect(found)
+        #expect(!args[0].contains("dXNlcjpwYXNzd29yZA"))
+        #expect(args[0].contains("Basic ••••"))
+        #expect(args[1] == "alice:••••@db.internal:5432/app")
+        #expect(args[2] == "a description with spaces")
+    }
+
+    @Test("conflicting-definition explanations only show masked arguments")
+    func conflictExplanationIsMasked() throws {
+        let home = URL(fileURLWithPath: "/Users/tester")
+        let file = home.appendingPathComponent(".claude.json")
+        let first = MCPServerCollector.entry(
+            name: "db",
+            definition: ["command": "db-mcp", "args": ["-H", "Authorization: Bearer abcdefghijklmnop", "-u", "alice:s3cretpass"]],
+            client: .claudeCode,
+            scope: .user,
+            file: file
+        )
+        let second = MCPServerCollector.entry(
+            name: "db",
+            definition: ["command": "db-mcp", "args": ["--password", "hunter2hunter2"]],
+            client: .cursor,
+            scope: .user,
+            file: home.appendingPathComponent(".cursor/mcp.json")
+        )
+        let rules = AgentConfigFindingRules(
+            homeDirectory: home,
+            binarySearchDirectories: [],
+            access: InMemoryDirectoryAccessProvider.make { _ in }
+        )
+        let conflict = try #require(rules.mcpFindings(for: [first, second]).first { $0.kind == .mcpConflictingDefinitions })
+        for secret in ["abcdefghijklmnop", "s3cretpass", "hunter2hunter2"] {
+            #expect(!conflict.explanation.contains(secret), "leaked \(secret)")
+        }
+        #expect(conflict.explanation.contains("Bearer ••••"))
+    }
+
     @Test("URL host extraction keeps nothing but the host")
     func hosts() {
         #expect(AgentConfigSecretMasker.host(of: "https://mcp.example.com/sse?key=abc") == "mcp.example.com")

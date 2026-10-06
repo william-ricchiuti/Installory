@@ -262,4 +262,38 @@ struct GuidanceAgentPromptTests {
         #expect(r.redact(text: "see /Users/tester and /Users/tester/x, not /Users/testers")
                 == "see ~ and ~/x, not /Users/testers")
     }
+
+    @Test("free text from findings, verdicts and package fields never carries the home path")
+    func freeTextIsRedacted() {
+        let b = builder()
+        let finding = b.findingPrompt(for: PromptFinding(
+            title: "Server in /Users/tester/code/app is broken",
+            explanation: "See /Users/tester/.claude.json",
+            filePaths: []
+        ))
+        #expect(!finding.title.contains("/Users/tester"))
+        #expect(!finding.body.contains("/Users/tester"))
+        #expect(finding.title.contains("~/code/app"))
+
+        let package = pkg("/Users/tester/tools/thing", version: "1.0 (/Users/tester/src)")
+        let removal = b.removalPrompt(
+            for: package,
+            dependentsCount: 0,
+            verdict: RemovalSafetyVerdict(safety: .caution, reasons: ["Used by /Users/tester/code/app"]),
+            installedBy: "script at /Users/tester/bin/setup.sh"
+        )
+        #expect(!removal.title.contains("/Users/tester"))
+        #expect(!removal.body.contains("/Users/tester"))
+        #expect(removal.body.contains("~/code/app"))
+
+        let cleanup = b.cleanupPrompt(for: [package])
+        #expect(!cleanup.body.contains("/Users/tester"))
+
+        let group = DuplicateGroup(name: "/Users/tester/bin/tool", packages: [package, pkg("tool", manager: .npm)])
+        let duplicate = b.duplicatePrompt(for: group)
+        #expect(!duplicate.title.contains("/Users/tester"))
+        #expect(!duplicate.body.contains("/Users/tester"))
+        let setup = b.setupPrompt(packages: [package], duplicateGroups: [group])
+        #expect(!setup.body.contains("/Users/tester"))
+    }
 }

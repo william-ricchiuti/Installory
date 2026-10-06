@@ -5,13 +5,16 @@ import SwiftUI
 /// Why a dedicated analysis view has no rows to display.
 ///
 /// A positive "no findings" message is reserved for a completed scan in which
-/// no manager failed or timed out. Skipped managers (not installed, or not
-/// granted) don't make results inconclusive; saved inventory with unknown
-/// coverage and failed or timed-out scans do.
+/// no manager failed, timed out or was blocked from its folder. Managers that
+/// simply aren't installed don't make results inconclusive; saved inventory
+/// with unknown coverage, failed or timed-out scans, and tools whose folders
+/// aren't granted yet do.
 enum AnalysisEmptyState: Equatable {
     case scanInProgress
     case noInventory
     case incompleteCoverage
+    /// Incomplete coverage caused only by tools whose folders aren't granted.
+    case foldersNotGranted
     case noResults
 
     static func resolve(
@@ -27,9 +30,10 @@ enum AnalysisEmptyState: Equatable {
             return packageCount == 0 ? .noInventory : .noResults
         }
 
-        // Only a scanner that actually failed or timed out makes results
-        // inconclusive. `.skipped` means the manager isn't present on this Mac
-        // (or its folder isn't granted), which is a complete answer.
+        // A scanner that failed or timed out makes results inconclusive, and
+        // so does one the sandbox kept out of an ungranted folder (the tool is
+        // there, Installory just couldn't read it). Any other `.skipped` means
+        // the manager isn't present on this Mac, which is a complete answer.
         let hasScanProblem = scanStatuses.values.contains { status in
             switch status {
             case .failed, .timedOut: true
@@ -38,6 +42,9 @@ enum AnalysisEmptyState: Equatable {
         }
         if hasScanProblem {
             return .incompleteCoverage
+        }
+        if scanStatuses.values.contains(where: \.isAccessNeeded) {
+            return .foldersNotGranted
         }
         if packageCount == 0 {
             return .noInventory
@@ -77,7 +84,7 @@ struct AnalysisEmptyStateView: View {
         switch state {
         case .scanInProgress: "Analysis in Progress"
         case .noInventory: "No Package Inventory"
-        case .incompleteCoverage: "Results May Be Incomplete"
+        case .incompleteCoverage, .foldersNotGranted: "Results May Be Incomplete"
         case .noResults: noResultsTitle
         }
     }
@@ -87,6 +94,7 @@ struct AnalysisEmptyStateView: View {
         case .scanInProgress: "arrow.triangle.2.circlepath"
         case .noInventory: "shippingbox"
         case .incompleteCoverage: "exclamationmark.triangle"
+        case .foldersNotGranted: "folder.badge.questionmark"
         case .noResults: noResultsSystemImage
         }
     }
@@ -99,6 +107,8 @@ struct AnalysisEmptyStateView: View {
             "Grant access to a package directory and run a scan before using this analysis."
         case .incompleteCoverage:
             "A package manager scan failed or timed out, or this saved inventory hasn\u{2019}t been rescanned yet. Review Scan Coverage and scan again before relying on this analysis."
+        case .foldersNotGranted:
+            "Some tools\u{2019} folders aren\u{2019}t granted yet, so Installory couldn\u{2019}t look inside them. Use Add Folder in the sidebar to allow access, then scan again."
         case .noResults:
             noResultsDescription
         }
