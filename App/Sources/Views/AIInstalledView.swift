@@ -39,6 +39,7 @@ struct AIInstalledView: View {
             placement: .toolbar,
             prompt: "Search AI-attributed packages"
         )
+        .findCommandFocusable()
         .onChange(of: coordinator.searchQuery) { _, query in
             let visible = aiInstalledPackages.matching(query: query)
             guard let selectedID = coordinator.selectedPackage?.id,

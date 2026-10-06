@@ -86,6 +86,24 @@ final class AppCoordinator {
     var tableSortOrder: [PackageTableSortDescriptor] = PackageTableSortDescriptor.defaultOrder
     var selectedPackage: Package?
 
+    /// Incremented by ⌘F; searchable views observe it to focus their field.
+    private(set) var searchFocusRequest = 0
+
+    /// True when the current destination shows a search field.
+    var canFocusSearch: Bool {
+        sidebarSelection?.hasSearchField ?? false
+    }
+
+    /// Focuses the visible search field (Edit ▸ Find Packages, ⌘F).
+    func focusSearch() {
+        guard canFocusSearch else { return }
+        if #available(macOS 15.0, *) {
+            searchFocusRequest &+= 1
+        } else {
+            SearchFieldFocuser.focusSearchField(in: NSApp.keyWindow ?? NSApp.mainWindow)
+        }
+    }
+
     /// A user-initiated action failed. Presented as an alert and cleared on dismiss.
     ///
     /// Distinct from `storageWarning`, which is an ambient banner about the local cache:
@@ -214,7 +232,7 @@ final class AppCoordinator {
     /// exists in `FolderAccessManager`, indicating the user has granted read
     /// access for provenance collection.
     var provenanceAccessGranted: Bool {
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let homePath = UserHome.directory.path
         return folderAccess.grantedPath(covering: homePath) != nil
     }
 
@@ -887,6 +905,9 @@ final class AppCoordinator {
         if let last = lastScanCompletedAt, Date().timeIntervalSince(last) < Self.autoScanCooldown {
             return
         }
+        // "Scan on launch" means a real rescan (cooldown-gated above); the
+        // saved inventory from hydration is shown until it finishes.
+        await scan()
         await refreshSnapshots()
     }
 
@@ -1351,7 +1372,7 @@ final class AppCoordinator {
     /// `~/.local/share/fish/fish_history`, `~/.claude/projects/`,
     /// `~/.codex/sessions/`, and `~/.local/share/opencode/opencode.db`.
     func requestProvenanceAccess() async {
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
+        let homeDir = UserHome.directory
         _ = await folderAccess.requestAccess(to: homeDir)
     }
 
@@ -1361,7 +1382,7 @@ final class AppCoordinator {
     /// Safe to call outside of an active scan (the Revoke button is shown only
     /// when the toggle is ON and the toggle is disabled while scanning).
     func revokeProvenanceAccess() {
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let homePath = UserHome.directory.path
         guard let storedPath = folderAccess.grantedPath(covering: homePath) else { return }
         folderAccess.remove(path: storedPath)
     }
@@ -1465,7 +1486,7 @@ final class AppCoordinator {
         }
 
         let managerEnvironment = PackageManagerEnvironment.current
-        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        let homeDirectory = UserHome.directory
         let pythonDiscovery = PythonInterpreterDiscovery(
             homeDirectory: homeDirectory,
             environment: managerEnvironment,
@@ -1621,7 +1642,7 @@ final class AppCoordinator {
 
         // Require a security-scoped bookmark covering the home directory.
         // The user grants this via "Grant read access…" in Settings → Privacy.
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
+        let homeDir = UserHome.directory
         guard
             let homePath = folderAccess.grantedPath(covering: homeDir.path),
             let homeBookmarkPair = folderAccess.grantedBookmarks().first(where: { $0.path == homePath })
@@ -1681,7 +1702,7 @@ final class AppCoordinator {
 
     private func scanner(for manager: PackageManager, grantedURLs: [URL]) -> (any PackageScanner)? {
         let environment = PackageManagerEnvironment.current
-        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        let homeDirectory = UserHome.directory
         switch manager {
         case .brew, .brewCask: return BrewScanner()
         case .pip:
@@ -1722,7 +1743,7 @@ final class AppCoordinator {
     }
 
     private func grantedApplicationsDirectories(_ grantedRoots: [URL]) -> [URL] {
-        let homeApplications = FileManager.default.homeDirectoryForCurrentUser
+        let homeApplications = UserHome.directory
             .appendingPathComponent("Applications", isDirectory: true)
         let candidates = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),

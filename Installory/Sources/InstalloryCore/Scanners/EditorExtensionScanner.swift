@@ -230,6 +230,22 @@ public struct EditorExtensionScanner: PackageScanner, Sendable {
             parsed = nil
         }
 
+        // VS Code manifests often localize `displayName`/`description` as
+        // `%key%` placeholders resolved from `package.nls.json`. Read that file
+        // (bounded, same containment rules) only when a placeholder needs it.
+        var localizedStrings: [String: String] = [:]
+        if parsed?.needsLocalization == true {
+            let nlsURL = extensionDirectory.appendingPathComponent("package.nls.json")
+            if let nlsData = try? boundedRegularFile(
+                at: nlsURL,
+                maximumBytes: limits.maximumPackageJSONBytes,
+                containedIn: root
+            ) {
+                localizedStrings = ExtensionIdentityParser.parseLocalizedStrings(nlsData)
+            }
+            try Task.checkCancellation()
+        }
+
         let measuredSize = try await sizer.measure(
             [.tree(extensionDirectory)],
             constrainedTo: root
@@ -252,7 +268,8 @@ public struct EditorExtensionScanner: PackageScanner, Sendable {
             isReadOnly: false,
             dependencies: [],
             artifactPaths: nil,
-            lastSeen: observationDate
+            lastSeen: observationDate,
+            summary: parsed?.summary(localizedStrings: localizedStrings)
         )
     }
 
@@ -361,6 +378,54 @@ enum EditorExtensionScannerError: Swift.Error, Equatable, Sendable {
 struct ExtensionIdentity: Sendable, Equatable {
     let name: String
     let version: String
+    /// `package.json` `displayName`, possibly a `%key%` localization placeholder.
+    var displayName: String? = nil
+    /// `package.json` `description`, possibly a `%key%` localization placeholder.
+    var description: String? = nil
+    /// `package.json` `publisher`.
+    var publisher: String? = nil
+
+    /// True when `displayName` or `description` is a `%key%` placeholder.
+    var needsLocalization: Bool {
+        [displayName, description].contains { $0.map(Self.isPlaceholder) ?? false }
+    }
+
+    /// A one-line summary for display: the description when present, otherwise
+    /// the display name. Placeholders are resolved through `localizedStrings`
+    /// and dropped when unresolved.
+    func summary(localizedStrings: [String: String] = [:]) -> String? {
+        let resolvedDescription = Self.resolve(description, in: localizedStrings)
+        let resolvedDisplayName = Self.resolve(displayName, in: localizedStrings)
+        let chosen = resolvedDescription ?? resolvedDisplayName
+        guard let chosen else { return nil }
+        let collapsed = chosen
+            .components(separatedBy: .whitespacesAndNewlines)
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        guard !collapsed.isEmpty else { return nil }
+        if collapsed.count > 500 {
+            return String(collapsed.prefix(499)) + "…"
+        }
+        return collapsed
+    }
+
+    private static func isPlaceholder(_ value: String) -> Bool {
+        value.count >= 3 && value.hasPrefix("%") && value.hasSuffix("%")
+    }
+
+    private static func resolve(_ value: String?, in strings: [String: String]) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard isPlaceholder(trimmed) else { return trimmed }
+        let key = String(trimmed.dropFirst().dropLast())
+        guard let localized = strings[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !localized.isEmpty,
+              !isPlaceholder(localized) else {
+            return nil
+        }
+        return localized
+    }
 
     /// Falls back to the directory name, stripping a trailing `-version` suffix
     /// like `-1.2.3` or `-1.2.3-beta` when present.
@@ -380,8 +445,9 @@ struct ExtensionIdentity: Sendable, Equatable {
 
 /// Minimal `package.json` reader for extension identity.
 ///
-/// Only the `name` and `version` string fields are extracted via Foundation's
-/// JSON parser; nothing else is interpreted.
+/// Only the `name`, `version`, `displayName`, `description`, and `publisher`
+/// string fields are extracted via Foundation's JSON parser; nothing else is
+/// interpreted.
 enum ExtensionIdentityParser {
     static func parse(_ data: Data) -> ExtensionIdentity? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -389,6 +455,29 @@ enum ExtensionIdentityParser {
         }
         guard let name = object["name"] as? String, !name.isEmpty else { return nil }
         let version = (object["version"] as? String) ?? ""
-        return ExtensionIdentity(name: name, version: version)
+        return ExtensionIdentity(
+            name: name,
+            version: version,
+            displayName: object["displayName"] as? String,
+            description: object["description"] as? String,
+            publisher: object["publisher"] as? String
+        )
+    }
+
+    /// Reads the flat string table from `package.nls.json`. Non-string values
+    /// (VS Code also allows `{ "message": …, "comment": … }`) use `message`.
+    static func parseLocalizedStrings(_ data: Data) -> [String: String] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return [:]
+        }
+        var result: [String: String] = [:]
+        for (key, value) in object {
+            if let string = value as? String {
+                result[key] = string
+            } else if let nested = value as? [String: Any], let message = nested["message"] as? String {
+                result[key] = message
+            }
+        }
+        return result
     }
 }

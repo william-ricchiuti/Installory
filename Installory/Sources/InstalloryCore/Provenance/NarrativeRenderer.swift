@@ -45,8 +45,8 @@ public struct NarrativeRenderer: Sendable {
             .map { displayName(for: $0, in: nameByPackageId) }
         let coInstalledTotal = evidence.coInstalledWithin1hTotalCount ?? coNames.count
 
-        if let context = evidence.claudeCodeContext {
-            return renderClaudeCode(context: context, coInstalled: coNames, totalCount: coInstalledTotal)
+        if let attribution = evidence.agentAttribution {
+            return renderAgent(attribution, coInstalled: coNames, totalCount: coInstalledTotal)
         }
         if let command = evidence.installCommand {
             return renderShell(
@@ -64,21 +64,22 @@ public struct NarrativeRenderer: Sendable {
 
     // MARK: - Template cases
 
-    private func renderClaudeCode(
-        context: ProvenanceEvidence.ClaudeCodeContext,
+    /// Renders any agent session (Claude Code, Codex, opencode), naming the agent.
+    private func renderAgent(
+        _ attribution: AgentAttribution,
         coInstalled: [String],
         totalCount: Int
     ) -> String {
-        let dateStr = context.timestamp.map { formatDate($0) } ?? "an unknown date"
+        let dateStr = attribution.timestamp.map { formatDate($0) } ?? "an unknown date"
         let summary: String
-        if let s = context.sessionSummary {
+        if let s = attribution.sessionSummary {
             summary = " That session was about: \(s)."
-        } else if let msg = context.firstUserMessage {
+        } else if let msg = attribution.firstUserMessage {
             summary = " You'd asked: \"\(msg)\"."
         } else {
             summary = ""
         }
-        return "Installed \(dateStr) while working in \(context.projectPath).\(summary)\(coInstalledClause(coInstalled, totalCount: totalCount))"
+        return "Installed \(dateStr) by \(attribution.agentName) while working in \(attribution.projectPath).\(summary)\(coInstalledClause(coInstalled, totalCount: totalCount))"
     }
 
     private func renderShell(

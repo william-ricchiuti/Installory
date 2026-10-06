@@ -8,7 +8,7 @@ import Foundation
 /// filesystem, the database, or the network. The data is deliberately shaped to
 /// exercise every UI surface:
 ///
-/// - packages across all nine supported managers
+/// - packages across all twelve supported managers (`PackageManager.allCases`)
 /// - explicit installs and pulled-in dependencies
 /// - a read-only system package (Read-only sidebar filter)
 /// - cross-manager duplicates (Duplicates view)

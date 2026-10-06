@@ -294,7 +294,8 @@ public struct AgentSkillScanner: PackageScanner, Sendable {
             isReadOnly: false,
             dependencies: [],
             artifactPaths: nil,
-            lastSeen: observationDate
+            lastSeen: observationDate,
+            summary: frontmatter?.summary
         )
     }
 
@@ -404,13 +405,33 @@ enum AgentSkillScannerError: Swift.Error, Equatable, Sendable {
 /// Minimal YAML frontmatter parser for `SKILL.md` manifests.
 ///
 /// Only the `name`, `description`, and `version` scalar keys in the opening
-/// `---` block are extracted. Values may be bare or single/double-quoted;
-/// block scalars and lists are ignored.
+/// `---` block are extracted. Values may be bare or single/double-quoted, or a
+/// folded/literal block scalar (`>` / `|`) whose indented lines are joined
+/// with spaces; lists are ignored.
 enum SkillManifestParser {
+    /// Upper bound on a stored skill summary, so a runaway frontmatter value
+    /// cannot bloat the inventory row.
+    static let maximumSummaryCharacters = 500
+
     struct Manifest: Sendable, Equatable {
         var name: String?
         var description: String?
         var version: String?
+
+        /// The description as a single trimmed line suitable for display, or
+        /// nil when absent or blank.
+        var summary: String? {
+            guard let description else { return nil }
+            let collapsed = description
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            guard !collapsed.isEmpty else { return nil }
+            if collapsed.count > SkillManifestParser.maximumSummaryCharacters {
+                return String(collapsed.prefix(SkillManifestParser.maximumSummaryCharacters - 1)) + "…"
+            }
+            return collapsed
+        }
     }
 
     static func parse(_ data: Data) -> Manifest {
@@ -426,7 +447,10 @@ enum SkillManifestParser {
         lines.removeFirst()
 
         var manifest = Manifest()
-        for line in lines {
+        var index = 0
+        while index < lines.count {
+            let line = lines[index]
+            index += 1
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             if trimmed == "---" { break }
             guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
@@ -445,6 +469,20 @@ enum SkillManifestParser {
                 value = String(value[..<comment.lowerBound])
             }
             value = value.trimmingCharacters(in: .whitespaces)
+
+            if ["|", ">", "|-", ">-", "|+", ">+"].contains(value) {
+                // Block scalar: consume the following indented lines.
+                var parts: [String] = []
+                while index < lines.count {
+                    let next = lines[index]
+                    let nextTrimmed = next.trimmingCharacters(in: .whitespaces)
+                    if nextTrimmed.isEmpty { index += 1; continue }
+                    guard next.first == " " || next.first == "\t" else { break }
+                    parts.append(nextTrimmed)
+                    index += 1
+                }
+                value = parts.joined(separator: " ")
+            }
 
             switch key {
             case "name": manifest.name = value

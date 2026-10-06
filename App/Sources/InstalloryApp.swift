@@ -11,6 +11,14 @@ struct InstalloryApp: App {
                 .environment(coordinator)
         }
         .commands {
+            CommandGroup(after: .textEditing) {
+                Button("Find Packages") {
+                    coordinator.focusSearch()
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(!coordinator.canFocusSearch)
+            }
+
             CommandGroup(after: .sidebar) {
                 Button("Show as List") {
                     coordinator.showInventory(as: .list)

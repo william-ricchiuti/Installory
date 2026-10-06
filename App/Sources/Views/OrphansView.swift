@@ -39,6 +39,7 @@ struct OrphansView: View {
             placement: .toolbar,
             prompt: "Search review candidates"
         )
+        .findCommandFocusable()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             CleanupSelectionFooter()
         }
@@ -143,6 +144,7 @@ private struct OrphanRow: View {
                     Text(package.name)
                         .fontWeight(.semibold)
                         .lineLimit(1)
+                        .layoutPriority(1)
                     ManagerBadge(manager: package.manager)
                 }
                 Text(package.version)

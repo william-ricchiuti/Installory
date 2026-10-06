@@ -9,7 +9,7 @@ import Foundation
 public struct ProvenanceRedactor: Sendable {
     private let homePath: String
 
-    public init(homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    public init(homeDirectory: URL = UserHome.directory) {
         self.homePath = homeDirectory.standardizedFileURL.path
     }
 

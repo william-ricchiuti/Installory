@@ -111,6 +111,7 @@ struct SnapshotContentView: View {
         }
         .listStyle(.inset)
         .searchable(text: $searchQuery, prompt: "Filter snapshot")
+        .findCommandFocusable()
         .navigationTitle("Snapshot")
         .alert("Nothing Missing", isPresented: $showNothingMissingAlert) {
             Button("OK") {}

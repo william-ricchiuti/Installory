@@ -16,7 +16,7 @@ public struct PipxScanner: PackageScanner, Sendable {
     public init(
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
         parser: DistInfoParser? = nil,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        homeDirectory: URL = UserHome.directory,
         environment: PackageManagerEnvironment = .current
     ) {
         self.directoryAccess = directoryAccess

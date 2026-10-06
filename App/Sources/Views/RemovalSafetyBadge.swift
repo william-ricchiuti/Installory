@@ -11,7 +11,7 @@ struct RemovalSafetyBadge: View {
             .font(.caption)
             .foregroundStyle(tint)
             .help(helpText)
-            .accessibilityLabel("Removal safety: \(verdict.safety.rawValue)")
+            .accessibilityLabel("Removal safety: \(Self.label(for: verdict.safety))")
             .accessibilityHint(helpText)
     }
 
@@ -31,13 +31,17 @@ struct RemovalSafetyBadge: View {
         }
     }
 
-    private var helpText: String {
-        let label: String
-        switch verdict.safety {
-        case .safe:       label = "Safe to remove"
-        case .caution:    label = "Remove with care"
-        case .leaveAlone: label = "Leave alone"
+    /// Human-readable verdict, used for the tooltip and VoiceOver.
+    static func label(for safety: RemovalSafety) -> String {
+        switch safety {
+        case .safe:       "Safe to remove"
+        case .caution:    "Remove with care"
+        case .leaveAlone: "Leave alone"
         }
+    }
+
+    private var helpText: String {
+        let label = Self.label(for: verdict.safety)
         guard !verdict.reasons.isEmpty else { return label }
         return "\(label): \(verdict.reasons.joined(separator: " · "))"
     }

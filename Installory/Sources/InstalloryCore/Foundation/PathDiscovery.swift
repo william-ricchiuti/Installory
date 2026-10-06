@@ -21,7 +21,7 @@ public struct PathDiscovery: Sendable {
     ///   - checkExists: Returns `true` if the given absolute path exists.
     public init(
         environment: PackageManagerEnvironment = .current,
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        homeDirectory: URL = UserHome.directory,
         checkExists: @Sendable @escaping (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
     ) {
         self.environment = environment

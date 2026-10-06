@@ -24,6 +24,7 @@ public enum Migrations {
         migrator.registerMigration("v1_initial", migrate: v1Initial)
         migrator.registerMigration("v2_package_artifact_paths", migrate: v2PackageArtifactPaths)
         migrator.registerMigration("v3_package_user_state", migrate: v3PackageUserState)
+        migrator.registerMigration("v4_package_summary", migrate: v4PackageSummary)
         return migrator
     }
 
@@ -109,5 +110,12 @@ public enum Migrations {
             )
             """)
         try db.execute(sql: "CREATE INDEX idx_package_user_state_pinned ON package_user_state(is_pinned)")
+    }
+
+    /// Scanner-supplied one-line package summary (skill frontmatter or editor
+    /// extension `package.json` description). Nullable so existing rows and
+    /// managers without such metadata are unaffected.
+    private static func v4PackageSummary(_ db: GRDB.Database) throws {
+        try db.execute(sql: "ALTER TABLE packages ADD COLUMN summary TEXT")
     }
 }

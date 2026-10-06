@@ -12,7 +12,7 @@ public struct ShellHistoryCollector: Sendable {
 
     public init(
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+        homeDirectory: URL = UserHome.directory
     ) {
         self.directoryAccess = directoryAccess
         self.homeDirectory = homeDirectory

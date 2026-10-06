@@ -52,11 +52,42 @@ public enum RemovalStrategy: Sendable, Equatable {
 }
 
 extension Package {
-    /// True when Installory can generate a shell removal command for this row.
-    /// The app uses the same predicate for Cleanup Mode selection controls.
+    /// True when a generated cleanup script would contain a runnable command for
+    /// this row under at least one `RemovalStrategy`. The app uses the same
+    /// predicate for Cleanup Mode selection controls.
+    ///
+    /// False for read-only rows, Mac App Store apps, uv rows without a safe
+    /// target, and agent CLIs — their script output would be comment-only. A real
+    /// agent-skill directory is eligible only because trash mode can move it; use
+    /// ``isRemovalScriptEligible(strategy:)`` when the strategy is known.
     public var isRemovalScriptEligible: Bool {
+        isRemovalScriptEligible(strategy: .uninstall) || isRemovalScriptEligible(strategy: .trash)
+    }
+
+    /// True when `ScriptGenerator.generate(packages:strategy:)` would emit a
+    /// runnable (non-comment) command for this row with `strategy`. Rows for
+    /// which this is false would produce a comment-only script, so the UI should
+    /// not offer them for cleanup under that strategy.
+    ///
+    /// Denylist status is not considered here; denylisted rows are commented out
+    /// by the generator and reported through `GeneratedScript.warnedDenylisted`.
+    public func isRemovalScriptEligible(strategy: RemovalStrategy) -> Bool {
         guard !isReadOnly, manager != .mas else { return false }
-        return manager != .uv || UvToolEnvironmentIdentity.target(from: qualifier) != nil
+        if strategy == .trash, ScriptGenerator.trashSource(for: self) != nil {
+            return true
+        }
+        switch manager {
+        case .uv:
+            return UvToolEnvironmentIdentity.target(from: qualifier) != nil
+        case .agentCli:
+            return false
+        case .agentSkill:
+            return isBrokenAgentSkillLink
+        case .editorExtension:
+            return ScriptGenerator.editorCommand(for: qualifier) != nil
+        case .brew, .brewCask, .pip, .npm, .pipx, .cargo, .gem, .mas:
+            return true
+        }
     }
 }
 
@@ -92,8 +123,17 @@ public struct ScriptGenerator: Sendable {
     /// This is a pure per-package display API. It performs no denylist filtering,
     /// dependency sorting, or script-header generation. `renderCommand` remains
     /// private and script-oriented; this method owns the nil cases cleanly.
+    ///
+    /// Agent rows whose removal is review-only (agent CLIs, real skill
+    /// directories, unknown editor roots) return their explanatory `#` comment
+    /// so the UI can still show why nothing runs; use
+    /// `Package.isRemovalScriptEligible(strategy:)` to decide whether to offer
+    /// cleanup at all.
     public func removalCommand(for package: Package) -> String? {
-        guard package.isRemovalScriptEligible else { return nil }
+        guard !package.isReadOnly, package.manager != .mas else { return nil }
+        if package.manager == .uv, UvToolEnvironmentIdentity.target(from: package.qualifier) == nil {
+            return nil
+        }
         return renderCommand(for: package)
     }
 
@@ -140,16 +180,17 @@ public struct ScriptGenerator: Sendable {
         strategy: RemovalStrategy,
         trashRoot: String
     ) -> String {
+        var header: [String] = []
+        appendHeader(to: &header, snapshot: snapshot, strategy: strategy)
         var out: [String] = []
-        appendHeader(to: &out, snapshot: snapshot, strategy: strategy)
-        if strategy == .trash && active.contains(where: { Self.isTrashEligible($0) }) {
+        if strategy == .trash && active.contains(where: { Self.trashSource(for: $0) != nil }) {
             out.append("mkdir -p \(trashRoot)")
         }
         appendManagerSections(packages: active, strategy: strategy, trashRoot: trashRoot, to: &out)
         if !denylisted.isEmpty {
             appendDenylistSection(packages: denylisted, to: &out)
         }
-        return out.joined(separator: "\n") + "\n"
+        return assembleSubshellScript(header: header, body: out)
     }
 
     private func appendHeader(to out: inout [String], snapshot: SnapshotContext?, strategy: RemovalStrategy) {
@@ -173,8 +214,6 @@ public struct ScriptGenerator: Sendable {
             out.append("# To restore the original state if something goes wrong, load this")
             out.append("# snapshot in Installory and use \"Restore Missing Packages\".")
         }
-
-        out.append("set -euo pipefail")
     }
 
     // MARK: - Manager sections
@@ -296,7 +335,7 @@ public struct ScriptGenerator: Sendable {
             // safely (it is just a dangling link); a real skill directory or a
             // resolvable symlink is destructive to delete, so it stays commented.
             if pkg.isBrokenAgentSkillLink {
-                let linkPath = agentSkillLinkPath(for: pkg)
+                let linkPath = Self.agentSkillLinkPath(for: pkg)
                 let cmd = "rm \(shellArgument(linkPath))"
                 out.append(shellEchoLine(for: cmd))
                 out.append(cmd)
@@ -333,7 +372,7 @@ public struct ScriptGenerator: Sendable {
     /// (owning skills root) and name. Broken-symlink rows store no `installPath`
     /// (the link does not resolve), but the link itself always sits directly under
     /// the owning root, so `qualifier/name` is the exact path to remove.
-    private func agentSkillLinkPath(for pkg: Package) -> String {
+    static func agentSkillLinkPath(for pkg: Package) -> String {
         guard let root = pkg.qualifier, !root.isEmpty else { return pkg.name }
         return URL(fileURLWithPath: root)
             .appendingPathComponent(pkg.name)
@@ -341,19 +380,17 @@ public struct ScriptGenerator: Sendable {
             .path
     }
 
-    /// True when a package is a bare file/directory on disk that can be moved to
-    /// `~/.Trash` reversibly, rather than uninstalled through a package manager.
-    private static func isTrashEligible(_ pkg: Package) -> Bool {
-        switch pkg.manager {
-        case .agentSkill, .editorExtension: return true
-        default: return false
-        }
-    }
-
     /// The reversible `mv` command used in trash mode, or nil for packages that have
     /// no file-backed form. Moves the item into a fresh, timestamped folder under
     /// `~/.Trash` so a same-named item already in the Trash is never clobbered.
     private func trashCommand(for pkg: Package, trashRoot: String) -> String? {
+        guard let source = Self.trashSource(for: pkg) else { return nil }
+        return "mv \(shellArgument(source)) \(trashRoot)/\(shellArgument(pkg.name))"
+    }
+
+    /// The on-disk path trash mode would move for a file-backed row, or nil when
+    /// the row has no file-backed form (package-manager rows, agent CLIs).
+    static func trashSource(for pkg: Package) -> String? {
         let source: String?
         switch pkg.manager {
         case .agentSkill:
@@ -366,7 +403,7 @@ public struct ScriptGenerator: Sendable {
             return nil
         }
         guard let source, !source.isEmpty else { return nil }
-        return "mv \(shellArgument(source)) \(trashRoot)/\(shellArgument(pkg.name))"
+        return source
     }
 
     private func appendDenylistSection(packages: [Package], to out: inout [String]) {
@@ -438,7 +475,7 @@ public struct ScriptGenerator: Sendable {
         case .agentSkill:
             // Broken symlink: remove only the dangling link itself.
             if pkg.isBrokenAgentSkillLink {
-                return "rm \(shellArgument(agentSkillLinkPath(for: pkg)))"
+                return "rm \(shellArgument(Self.agentSkillLinkPath(for: pkg)))"
             }
             // Real directory or resolvable symlink: destructive, no package-manager
             // backup. Emitted as a comment so it never runs without explicit review.
@@ -464,7 +501,7 @@ public struct ScriptGenerator: Sendable {
 
     /// Maps an editor-extension qualifier (an editor extensions root path) to the
     /// editor CLI binary that manages it. Returns nil when no editor is recognized.
-    private static func editorCommand(for qualifier: String?) -> String? {
+    static func editorCommand(for qualifier: String?) -> String? {
         let path = qualifier ?? ""
         if path.contains("/.cursor/") { return "cursor" }
         if path.contains("/.vscode/") { return "code" }

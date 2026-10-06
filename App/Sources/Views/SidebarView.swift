@@ -15,6 +15,7 @@ struct SidebarView: View {
             snapshotsSection
         }
         .listStyle(.sidebar)
+        .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 360)
         .navigationTitle("Installory")
         .safeAreaInset(edge: .bottom) {
             bottomBar
@@ -288,28 +289,22 @@ struct SidebarView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(spacing: 6) {
-                Menu {
+            Menu {
+                Section("Recommended") {
                     DirectoryGrantsView()
-                } label: {
-                    Label("Grant Recommended ▾", systemImage: "folder.badge.plus")
-                        .font(.callout)
-                        .lineLimit(1)
                 }
-                .menuStyle(.borderlessButton)
-                .help("Grant access to a recommended directory")
-
-                Spacer(minLength: 0)
-
-                Button {
+                Divider()
+                Button("Custom Folder\u{2026}", systemImage: "folder") {
                     Task { await coordinator.grantCustomDirectory() }
-                } label: {
-                    Label("Custom…", systemImage: "folder")
-                        .font(.callout)
                 }
-                .buttonStyle(.borderless)
-                .help("Grant access to a custom directory")
+            } label: {
+                Label("Add Folder", systemImage: "folder.badge.plus")
+                    .font(.callout)
+                    .lineLimit(1)
             }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Grant read access to a recommended or custom folder")
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)

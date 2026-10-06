@@ -50,6 +50,12 @@ public enum RemovalSafetyAnalysis {
         }
 
         // 4. No scripted removal command exists.
+        if package.manager == .agentCli {
+            return RemovalSafetyVerdict(
+                safety: .caution,
+                reasons: ["Remove with the installer that originally placed it"]
+            )
+        }
         if !package.isRemovalScriptEligible {
             return RemovalSafetyVerdict(
                 safety: .caution,

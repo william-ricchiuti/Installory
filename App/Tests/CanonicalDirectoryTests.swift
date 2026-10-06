@@ -23,7 +23,7 @@ struct CanonicalDirectoryTests {
 
     @Test("UV-F1: canonical uv grant unlocks persistent tools and managed Python")
     func uvGrantCoversToolsAndManagedPython() throws {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = UserHome.directory.path
         let directory = try #require(
             CanonicalDirectory.all(isAppleSilicon: true).first {
                 $0.path == "\(home)/.local/share/uv"

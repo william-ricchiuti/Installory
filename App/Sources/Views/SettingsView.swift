@@ -84,7 +84,7 @@ private struct ScanningTab: View {
         Form {
             Section {
                 Toggle("Scan on launch", isOn: $coordinator.scanOnLaunch)
-                Text("When off, Installory shows the last scan result on launch. Use ⌘R to scan manually.")
+                Text("When on, Installory rescans your granted folders at launch (at most once a minute) and shows the last result meanwhile. When off, it shows the last scan result; use ⌘R to scan manually.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
@@ -171,7 +171,7 @@ private struct PrivacyTab: View {
 
                 if coordinator.provenanceCollection {
                     if coordinator.provenanceAccessGranted {
-                        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+                        let homePath = UserHome.directory.path
                         let grantedPath = coordinator.folderAccess.grantedPath(forPrefix: homePath) ?? homePath
                         Label("Access granted to \(grantedPath)", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)

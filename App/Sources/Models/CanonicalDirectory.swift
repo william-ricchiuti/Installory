@@ -8,7 +8,7 @@ struct CanonicalDirectory: Identifiable, Sendable {
 
     var displayPath: String {
         path.replacingOccurrences(
-            of: FileManager.default.homeDirectoryForCurrentUser.path,
+            of: UserHome.directory.path,
             with: "~"
         )
     }
@@ -19,7 +19,7 @@ struct CanonicalDirectory: Identifiable, Sendable {
 
     // All canonical directories for this Mac architecture.
     static func all(isAppleSilicon: Bool) -> [CanonicalDirectory] {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = UserHome.directory.path
         var dirs: [CanonicalDirectory] = []
         if isAppleSilicon {
             dirs.append(.init(path: "/opt/homebrew", managers: [.brew, .brewCask, .pip, .npm, .gem]))

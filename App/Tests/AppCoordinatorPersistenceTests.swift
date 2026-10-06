@@ -550,7 +550,7 @@ struct AppCoordinatorPersistenceTests {
         #expect(coordinator.selectedPackage == nil)
     }
 
-    @Test("APP25-010: analysis emptiness requires complete successful scan coverage")
+    @Test("APP25-010: analysis emptiness is inconclusive only for failed, timed-out, or unknown coverage")
     func analysisEmptyStateReflectsCoverage() {
         let completeCoverage = Dictionary(
             uniqueKeysWithValues: PackageManager.allCases.map {
@@ -559,6 +559,11 @@ struct AppCoordinatorPersistenceTests {
         )
         var failedCoverage = completeCoverage
         failedCoverage[.npm] = .failed(reason: "fixture failure", durationMs: 1)
+        var timedOutCoverage = completeCoverage
+        timedOutCoverage[.cargo] = .timedOut(durationMs: 1)
+        var skippedCoverage = completeCoverage
+        skippedCoverage[.gem] = .skipped(reason: "RubyGems not installed")
+        skippedCoverage[.uv] = .skipped(reason: "No uv tools directory")
 
         #expect(AnalysisEmptyState.resolve(
             packageCount: 0,
@@ -590,6 +595,25 @@ struct AppCoordinatorPersistenceTests {
             isDemoMode: false,
             scanStatuses: completeCoverage
         ) == .noResults)
+        #expect(AnalysisEmptyState.resolve(
+            packageCount: 2,
+            isScanning: false,
+            isDemoMode: false,
+            scanStatuses: timedOutCoverage
+        ) == .incompleteCoverage)
+        // A manager the user simply doesn't have is not a coverage gap.
+        #expect(AnalysisEmptyState.resolve(
+            packageCount: 2,
+            isScanning: false,
+            isDemoMode: false,
+            scanStatuses: skippedCoverage
+        ) == .noResults)
+        #expect(AnalysisEmptyState.resolve(
+            packageCount: 0,
+            isScanning: false,
+            isDemoMode: false,
+            scanStatuses: skippedCoverage
+        ) == .noInventory)
     }
 
     @Test("APP-F2: Duplicates and Review Candidates expose cleanup controls")
@@ -602,6 +626,45 @@ struct AppCoordinatorPersistenceTests {
         #expect(!SidebarSelection.diskUsage.supportsCleanupControls)
         #expect(!SidebarSelection.aiInstalled.supportsCleanupControls)
         #expect(!SidebarSelection.snapshot(UUID()).supportsCleanupControls)
+    }
+
+    @Test("Layout: selection-free destinations use the full window width")
+    func destinationLayouts() {
+        #expect(SidebarSelection.dashboard.destinationLayout == .fullWidth)
+        #expect(SidebarSelection.projects.destinationLayout == .fullWidth)
+        #expect(SidebarSelection.snapshot(UUID()).destinationLayout == .fullWidth)
+        #expect(SidebarSelection.all.destinationLayout == .listWithDetail)
+        #expect(SidebarSelection.manager(.npm).destinationLayout == .listWithDetail)
+        #expect(SidebarSelection.diskUsage.destinationLayout == .listWithDetail)
+        #expect(SidebarSelection.aiInstalled.destinationLayout == .listWithDetail)
+    }
+
+    @Test("Find: ⌘F is offered only where a search field exists")
+    func findCommandAvailability() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let coordinator = AppCoordinator(dataDirectoryOverride: directory)
+        coordinator.sidebarSelection = .dashboard
+        #expect(!coordinator.canFocusSearch)
+        coordinator.sidebarSelection = .all
+        #expect(coordinator.canFocusSearch)
+        #expect(SidebarSelection.skills.hasSearchField)
+        #expect(!SidebarSelection.diskUsage.hasSearchField)
+    }
+
+    @Test("Grant panel shows hidden files for dot-folders and home")
+    func grantPanelHiddenFiles() {
+        let home = UserHome.directory
+        #expect(FolderAccessManager.shouldShowHiddenFiles(for: nil))
+        #expect(FolderAccessManager.shouldShowHiddenFiles(for: home))
+        #expect(FolderAccessManager.shouldShowHiddenFiles(for: home.appendingPathComponent(".claude")))
+        #expect(!FolderAccessManager.shouldShowHiddenFiles(for: URL(fileURLWithPath: "/usr")))
+    }
+
+    @Test("VoiceOver reads a human removal-safety label")
+    func removalSafetyLabels() {
+        #expect(RemovalSafetyBadge.label(for: .leaveAlone) == "Leave alone")
+        #expect(RemovalSafetyBadge.label(for: .safe) == "Safe to remove")
     }
 
     @Test("APP-F2: sidebar reconciliation removes cleanup selections outside the new scope")

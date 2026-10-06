@@ -14,7 +14,9 @@ struct FreeUpSpaceTests {
         deps: [String] = [],
         isExplicit: Bool = true,
         isReadOnly: Bool = false,
-        sizeBytes: Int64? = 1_000_000
+        sizeBytes: Int64? = 1_000_000,
+        installPath: URL? = nil,
+        artifactPaths: [String]? = nil
     ) -> Package {
         let id = "\(manager.rawValue):\(qualifier ?? ""):\(name)"
         return Package(
@@ -23,14 +25,14 @@ struct FreeUpSpaceTests {
             qualifier: qualifier,
             name: name,
             version: "1.0.0",
-            installPath: nil,
+            installPath: installPath,
             installedAt: Self.ref,
             installedAtConfidence: .high,
             sizeBytes: sizeBytes,
             isExplicit: isExplicit,
             isReadOnly: isReadOnly,
             dependencies: deps,
-            artifactPaths: nil,
+            artifactPaths: artifactPaths,
             lastSeen: Self.ref
         )
     }
@@ -96,5 +98,86 @@ struct FreeUpSpaceTests {
         let packages = (0..<10).map { pkg("tool-\($0)") }
         let result = bundle(for: packages, limit: 3)
         #expect(result.candidates.count == 3)
+    }
+
+    // MARK: - Removal-safety gating (F3)
+
+    @Test("Implicitly installed packages (caution verdict) are excluded")
+    func implicitExcluded() {
+        let implicit = pkg("transitive-lib", isExplicit: false)
+        let explicit = pkg("my-tool")
+        let result = bundle(for: [implicit, explicit])
+        #expect(result.candidates.map(\.package.name) == ["my-tool"])
+    }
+
+    @Test("Agent CLIs, real skill directories and editor extensions are excluded")
+    func agentRowsExcluded() {
+        let cli = pkg("claude", manager: .agentCli, qualifier: "/Users/x/.claude",
+                      installPath: URL(fileURLWithPath: "/Users/x/.claude"))
+        let skill = pkg("app-design", manager: .agentSkill, qualifier: "/Users/x/.claude/skills",
+                        installPath: URL(fileURLWithPath: "/Users/x/.claude/skills/app-design"))
+        let ext = pkg("prettier-vscode", manager: .editorExtension, qualifier: "/Users/x/.vscode/extensions",
+                      installPath: URL(fileURLWithPath: "/Users/x/.vscode/extensions/prettier"))
+        let brew = pkg("ripgrep")
+        let result = bundle(for: [cli, skill, ext, brew])
+        #expect(result.candidates.map(\.package.name) == ["ripgrep"])
+    }
+
+    @Test("Every candidate has a .safe removal-safety verdict and a runnable command")
+    func everyCandidateIsSafe() {
+        let packages = [
+            pkg("a"), pkg("b", isExplicit: false), pkg("c", deps: ["a"]),
+            pkg("uvtool", manager: .uv, qualifier: "relative/not-safe"),
+            pkg("claude", manager: .agentCli, qualifier: "/Users/x/.claude"),
+        ]
+        let index = ReverseDependencyIndex(packages: packages)
+        let orphans = Set(packages.orphanedPackages().map(\.id))
+        let result = FreeUpSpace.bundle(packages: packages, now: Self.ref, reverseDependencyIndex: index)
+        #expect(!result.isEmpty)
+        for candidate in result.candidates {
+            let verdict = RemovalSafetyAnalysis.verdict(
+                for: candidate.package, reverseDependencyIndex: index, orphanedIDs: orphans
+            )
+            #expect(verdict.safety == .safe)
+            #expect(candidate.package.isRemovalScriptEligible(strategy: .uninstall))
+        }
+    }
+
+    @Test("Hidden package ids are excluded and the slot goes to the next candidate")
+    func hiddenIDsExcluded() {
+        let a = pkg("alpha", sizeBytes: 900)
+        let b = pkg("beta", sizeBytes: 800)
+        let packages = [a, b]
+        let result = FreeUpSpace.bundle(
+            packages: packages,
+            now: Self.ref,
+            reverseDependencyIndex: ReverseDependencyIndex(packages: packages),
+            excludingPackageIDs: [a.id],
+            limit: 1
+        )
+        #expect(result.candidates.map(\.package.id) == [b.id])
+        #expect(result.totalReclaimableBytes == 800)
+    }
+
+    @Test("A precomputed orphan set is honoured")
+    func precomputedOrphanSet() {
+        let a = pkg("alpha")
+        let packages = [a]
+        let withoutOrphans = FreeUpSpace.bundle(
+            packages: packages,
+            now: Self.ref,
+            reverseDependencyIndex: ReverseDependencyIndex(packages: packages),
+            orphanedIDs: []
+        )
+        // Not an orphan candidate → brew falls through to a caution verdict.
+        #expect(withoutOrphans.isEmpty)
+
+        let withOrphans = FreeUpSpace.bundle(
+            packages: packages,
+            now: Self.ref,
+            reverseDependencyIndex: ReverseDependencyIndex(packages: packages),
+            orphanedIDs: [a.id]
+        )
+        #expect(withOrphans.candidates.map(\.package.id) == [a.id])
     }
 }

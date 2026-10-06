@@ -22,7 +22,7 @@ public struct BrewScanner: PackageScanner, Sendable {
         self.directoryAccess = directoryAccess
         self.applicationDirectories = applicationDirectories ?? [
             URL(fileURLWithPath: "/Applications", isDirectory: true),
-            FileManager.default.homeDirectoryForCurrentUser
+            UserHome.directory
                 .appendingPathComponent("Applications", isDirectory: true),
         ]
     }

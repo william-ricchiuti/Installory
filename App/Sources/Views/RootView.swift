@@ -3,9 +3,10 @@ import SwiftUI
 
 /// Why a dedicated analysis view has no rows to display.
 ///
-/// A positive "no findings" message is reserved for a completed, successful
-/// scan across every supported manager. Saved inventory with unknown coverage,
-/// skipped managers, and failed scans remain explicitly inconclusive.
+/// A positive "no findings" message is reserved for a completed scan in which
+/// no manager failed or timed out. Skipped managers (not installed, or not
+/// granted) don't make results inconclusive; saved inventory with unknown
+/// coverage and failed or timed-out scans do.
 enum AnalysisEmptyState: Equatable {
     case scanInProgress
     case noInventory
@@ -25,19 +26,23 @@ enum AnalysisEmptyState: Equatable {
             return packageCount == 0 ? .noInventory : .noResults
         }
 
-        let hasCompleteCoverage = PackageManager.allCases.allSatisfy { manager in
-            guard let status = scanStatuses[manager], case .succeeded = status else {
-                return false
+        // Only a scanner that actually failed or timed out makes results
+        // inconclusive. `.skipped` means the manager isn't present on this Mac
+        // (or its folder isn't granted), which is a complete answer.
+        let hasScanProblem = scanStatuses.values.contains { status in
+            switch status {
+            case .failed, .timedOut: true
+            case .succeeded, .skipped: false
             }
-            return true
         }
-        if !scanStatuses.isEmpty, !hasCompleteCoverage {
+        if hasScanProblem {
             return .incompleteCoverage
         }
         if packageCount == 0 {
             return .noInventory
         }
-        return hasCompleteCoverage ? .noResults : .incompleteCoverage
+        // Saved inventory with no scan this session has unknown coverage.
+        return scanStatuses.isEmpty ? .incompleteCoverage : .noResults
     }
 }
 
@@ -92,9 +97,30 @@ struct AnalysisEmptyStateView: View {
         case .noInventory:
             "Grant access to a package directory and run a scan before using this analysis."
         case .incompleteCoverage:
-            "One or more package managers have not completed a successful scan. Review Scan Coverage and scan again before relying on this analysis."
+            "A package manager scan failed or timed out, or this saved inventory hasn\u{2019}t been rescanned yet. Review Scan Coverage and scan again before relying on this analysis."
         case .noResults:
             noResultsDescription
+        }
+    }
+}
+
+/// How a sidebar destination uses the window.
+enum DestinationLayout: Equatable {
+    /// Sidebar + list column + package detail column.
+    case listWithDetail
+    /// Sidebar + one full-width view; there is no package selection to detail.
+    case fullWidth
+}
+
+extension SidebarSelection {
+    /// Destinations without a package selection that drives the detail column
+    /// render full width instead of leaving an empty "No Package Selected" pane.
+    var destinationLayout: DestinationLayout {
+        switch self {
+        case .dashboard, .projects, .snapshot:
+            return .fullWidth
+        case .all, .manager, .readOnly, .duplicates, .orphans, .diskUsage, .aiInstalled, .skills:
+            return .listWithDetail
         }
     }
 }
@@ -102,52 +128,33 @@ struct AnalysisEmptyStateView: View {
 struct RootView: View {
     @Environment(AppCoordinator.self) private var coordinator
     @State private var showingBaselineCompare = false
+    /// Shared by both split-view layouts so a collapsed sidebar stays collapsed
+    /// when switching between full-width and list destinations.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+
+    private var layout: DestinationLayout {
+        (coordinator.sidebarSelection ?? .all).destinationLayout
+    }
 
     var body: some View {
         @Bindable var coordinator = coordinator
 
-        NavigationSplitView {
-            SidebarView()
-        } content: {
-            if case .dashboard = coordinator.sidebarSelection {
-                DashboardView()
-            } else if case .snapshot(let id) = coordinator.sidebarSelection {
-                SnapshotContentView(snapshotID: id)
-            } else if case .duplicates = coordinator.sidebarSelection {
-                DuplicatesView()
-            } else if case .orphans = coordinator.sidebarSelection {
-                OrphansView()
-            } else if case .diskUsage = coordinator.sidebarSelection {
-                DiskUsageView()
-            } else if case .aiInstalled = coordinator.sidebarSelection {
-                AIInstalledView()
-            } else if case .skills = coordinator.sidebarSelection {
-                SkillsView()
-            } else if case .projects = coordinator.sidebarSelection {
-                ProjectsView()
-            } else {
-                PackageListView()
-            }
-        } detail: {
-            if case .snapshot = coordinator.sidebarSelection {
-                ContentUnavailableView {
-                    Label("Snapshot View", systemImage: "camera.viewfinder")
-                } description: {
-                    Text("Select a package manager section to browse packages in this snapshot.")
+        Group {
+            switch layout {
+            case .fullWidth:
+                NavigationSplitView(columnVisibility: $columnVisibility) {
+                    SidebarView()
+                } detail: {
+                    fullWidthDestination
                 }
-            } else if case .projects = coordinator.sidebarSelection {
-                ContentUnavailableView {
-                    Label("Project Workspaces", systemImage: "folder")
-                } description: {
-                    Text("Select a project to reveal it in Finder.")
-                }
-            } else if let pkg = coordinator.selectedPackage {
-                PackageDetailView(package: pkg)
-            } else {
-                ContentUnavailableView {
-                    Label("No Package Selected", systemImage: "shippingbox")
-                } description: {
-                    Text("Select a package from the list to view its details.")
+            case .listWithDetail:
+                NavigationSplitView(columnVisibility: $columnVisibility) {
+                    SidebarView()
+                } content: {
+                    listDestination
+                        .navigationSplitViewColumnWidth(min: 300, ideal: 360)
+                } detail: {
+                    packageDetail
                 }
             }
         }
@@ -277,6 +284,53 @@ struct RootView: View {
                 .environment(coordinator)
         }
         .actionErrorAlert(coordinator: coordinator)
+    }
+
+    // MARK: - Destinations
+
+    @ViewBuilder
+    private var fullWidthDestination: some View {
+        switch coordinator.sidebarSelection {
+        case .snapshot(let id):
+            SnapshotContentView(snapshotID: id)
+        case .projects:
+            ProjectsView()
+        default:
+            DashboardView()
+        }
+    }
+
+    @ViewBuilder
+    private var listDestination: some View {
+        switch coordinator.sidebarSelection {
+        case .duplicates:
+            DuplicatesView()
+        case .orphans:
+            OrphansView()
+        case .diskUsage:
+            DiskUsageView()
+        case .aiInstalled:
+            AIInstalledView()
+        case .skills:
+            SkillsView()
+        default:
+            PackageListView()
+        }
+    }
+
+    @ViewBuilder
+    private var packageDetail: some View {
+        if let pkg = coordinator.selectedPackage {
+            PackageDetailView(package: pkg)
+                // Fresh per-package @State (e.g. the note draft).
+                .id(pkg.id)
+        } else {
+            ContentUnavailableView {
+                Label("No Package Selected", systemImage: "shippingbox")
+            } description: {
+                Text("Select a package from the list to view its details.")
+            }
+        }
     }
 
 }

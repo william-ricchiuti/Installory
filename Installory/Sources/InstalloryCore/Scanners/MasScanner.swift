@@ -15,7 +15,7 @@ public struct MasScanner: PackageScanner, Sendable {
 
     public init(
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        homeDirectory: URL = UserHome.directory,
         applicationDirectories: [URL]? = nil
     ) {
         self.directoryAccess = directoryAccess

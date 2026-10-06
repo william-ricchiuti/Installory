@@ -185,6 +185,7 @@ struct DuplicatesView: View {
             placement: .toolbar,
             prompt: "Search duplicates"
         )
+        .findCommandFocusable()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             CleanupSelectionFooter()
         }
