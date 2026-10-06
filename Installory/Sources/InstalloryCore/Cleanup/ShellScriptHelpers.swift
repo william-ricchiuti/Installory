@@ -46,3 +46,27 @@ func shellEchoLine(for cmd: String) -> String {
     let escaped = shellDoubleQuoteEscape(shellCommentText(cmd))
     return "echo \"→ \(escaped)\""
 }
+
+/// Explains the subshell wrapper in every generated script header.
+let shellSubshellExplanationLines = [
+    "#",
+    "# Commands run inside a ( ... ) subshell so strict mode (set -euo pipefail)",
+    "# never leaks into your Terminal session if you paste this script.",
+    "# You can also save it and run: bash <file>.sh",
+]
+
+/// Assembles a generated script: header comments stay at the top level (readable,
+/// inert), while every executable line runs inside a `( ... )` subshell that turns
+/// on strict mode. Pasting the script into an interactive shell therefore cannot
+/// leave `set -e`, `set -u`, or `pipefail` enabled in the user's session, and a
+/// failing command ends only the subshell, never the Terminal window. The result
+/// remains a valid `bash script.sh` program.
+func assembleSubshellScript(header: [String], body: [String]) -> String {
+    var out = header
+    out.append(contentsOf: shellSubshellExplanationLines)
+    out.append("(")
+    out.append("set -euo pipefail")
+    out.append(contentsOf: body)
+    out.append(")")
+    return out.joined(separator: "\n") + "\n"
+}

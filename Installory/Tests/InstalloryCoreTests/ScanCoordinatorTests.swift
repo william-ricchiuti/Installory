@@ -310,3 +310,28 @@ struct ScanCoordinatorTests {
         _ = await consumer.result
     }
 }
+
+// MARK: - Permission-denied mapping
+
+@Suite("ScanCoordinator permission-denied mapping")
+struct ScanCoordinatorPermissionTests {
+    @Test("a sandbox read refusal is reported as skipped, not failed")
+    func permissionDeniedIsSkipped() async {
+        let denied = CocoaError(.fileReadNoPermission)
+        let coordinator = ScanCoordinator(scanners: [MockScanner.throwing(manager: .cargo, error: denied)])
+        let events = await collectEvents(from: coordinator)
+        guard case .allFinished(let perManager, _)? = events.last else {
+            Issue.record("missing allFinished event")
+            return
+        }
+        #expect(perManager[.cargo] == .skipped(reason: ScanCoordinator.accessNeededReason))
+    }
+
+    @Test("wrapped POSIX EPERM is recognized; other errors are not")
+    func recognizesWrappedPermissionErrors() {
+        let posix = NSError(domain: NSPOSIXErrorDomain, code: Int(EPERM))
+        let wrapped = NSError(domain: NSCocoaErrorDomain, code: 256, userInfo: [NSUnderlyingErrorKey: posix])
+        #expect(ScanCoordinator.isPermissionDenied(wrapped))
+        #expect(!ScanCoordinator.isPermissionDenied(CocoaError(.fileReadCorruptFile)))
+    }
+}

@@ -497,6 +497,8 @@ struct AppCoordinatorPersistenceTests {
         try PackageDAO(database: database).replaceAll(with: [storedPackage])
 
         let coordinator = AppCoordinator(dataDirectoryOverride: directory)
+        // Pin the section so a sidebar choice persisted by a local app run can't hide the package.
+        coordinator.sidebarSelection = .all
         coordinator.selectedForCleanup = [storedPackage.id, "brew::no-longer-installed"]
         await coordinator.hydratePersistedState()
 
@@ -540,6 +542,7 @@ struct AppCoordinatorPersistenceTests {
 
         let coordinator = AppCoordinator(dataDirectoryOverride: directory)
         await coordinator.hydratePersistedState()
+        coordinator.sidebarSelection = .all
         coordinator.selectedPackage = storedPackage
         coordinator.searchQuery = "CELLAR/FFMPEG"
         coordinator.reconcileSelectedPackageForCurrentSidebar()
@@ -550,7 +553,7 @@ struct AppCoordinatorPersistenceTests {
         #expect(coordinator.selectedPackage == nil)
     }
 
-    @Test("APP25-010: analysis emptiness requires complete successful scan coverage")
+    @Test("APP25-010: analysis emptiness is inconclusive only for failed, timed-out, or unknown coverage")
     func analysisEmptyStateReflectsCoverage() {
         let completeCoverage = Dictionary(
             uniqueKeysWithValues: PackageManager.allCases.map {
@@ -559,6 +562,11 @@ struct AppCoordinatorPersistenceTests {
         )
         var failedCoverage = completeCoverage
         failedCoverage[.npm] = .failed(reason: "fixture failure", durationMs: 1)
+        var timedOutCoverage = completeCoverage
+        timedOutCoverage[.cargo] = .timedOut(durationMs: 1)
+        var skippedCoverage = completeCoverage
+        skippedCoverage[.gem] = .skipped(reason: "RubyGems not installed")
+        skippedCoverage[.uv] = .skipped(reason: "No uv tools directory")
 
         #expect(AnalysisEmptyState.resolve(
             packageCount: 0,
@@ -590,6 +598,118 @@ struct AppCoordinatorPersistenceTests {
             isDemoMode: false,
             scanStatuses: completeCoverage
         ) == .noResults)
+        #expect(AnalysisEmptyState.resolve(
+            packageCount: 2,
+            isScanning: false,
+            isDemoMode: false,
+            scanStatuses: timedOutCoverage
+        ) == .incompleteCoverage)
+        // A manager the user simply doesn't have is not a coverage gap.
+        #expect(AnalysisEmptyState.resolve(
+            packageCount: 2,
+            isScanning: false,
+            isDemoMode: false,
+            scanStatuses: skippedCoverage
+        ) == .noResults)
+        #expect(AnalysisEmptyState.resolve(
+            packageCount: 0,
+            isScanning: false,
+            isDemoMode: false,
+            scanStatuses: skippedCoverage
+        ) == .noInventory)
+
+        // A tool whose folder the sandbox refused is a coverage gap, not "not installed".
+        var accessNeededCoverage = skippedCoverage
+        accessNeededCoverage[.cargo] = .skipped(reason: ScanCoordinator.accessNeededReason)
+        #expect(AnalysisEmptyState.resolve(
+            packageCount: 2,
+            isScanning: false,
+            isDemoMode: false,
+            scanStatuses: accessNeededCoverage
+        ) == .foldersNotGranted)
+        // A real failure still wins over a missing grant.
+        accessNeededCoverage[.npm] = .failed(reason: "fixture failure", durationMs: 1)
+        #expect(AnalysisEmptyState.resolve(
+            packageCount: 2,
+            isScanning: false,
+            isDemoMode: false,
+            scanStatuses: accessNeededCoverage
+        ) == .incompleteCoverage)
+    }
+
+    @Test("Scan Coverage tells 'not granted' apart from 'not installed'")
+    func accessNeededCoverageCopy() {
+        let accessNeeded = ScannerStatus.skipped(reason: ScanCoordinator.accessNeededReason)
+        #expect(accessNeeded.isAccessNeeded)
+        #expect(!ScannerStatus.skipped(reason: "RubyGems not installed").isAccessNeeded)
+        #expect(!ScannerStatus.failed(reason: ScanCoordinator.accessNeededReason, durationMs: 1).isAccessNeeded)
+        #expect(ScannerStatus.friendlyAccessNeededDescription == "Allow access to its folder to include it")
+    }
+
+    @Test("Rating prompt is requested after the AI setup audit so the checkup is current")
+    func reviewRequestFollowsAgentConfigAudit() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/AppCoordinator.swift"),
+            encoding: .utf8
+        )
+        let scanStart = try #require(source.range(of: "    func scan(userInitiated: Bool = false) async {"))
+        let scanBody = source[scanStart.upperBound...]
+        let audit = try #require(scanBody.range(of: "await runAgentConfigAudit(grantedURLs: accessedURLs)"))
+        let review = try #require(scanBody.range(of: "if userInitiated {\n            requestReviewIfAppropriate()"))
+        #expect(audit.upperBound <= review.lowerBound)
+    }
+
+    @Test("Rating prompt never follows the automatic launch scan")
+    func reviewRequestOnlyAfterUserInitiatedScan() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/AppCoordinator.swift"),
+            encoding: .utf8
+        )
+        func body(of signature: String) throws -> Substring {
+            let start = try #require(source.range(of: signature))
+            let rest = source[start.upperBound...]
+            let end = rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex
+            return rest[..<end]
+        }
+        let autoScan = try body(of: "    func autoScanIfNeeded() async {")
+        #expect(autoScan.contains("await scan()"))
+        #expect(!autoScan.contains("userInitiated: true"))
+        let refresh = try body(of: "    func refresh() async {")
+        #expect(refresh.contains("await scan(userInitiated: true)"))
+        // The only call to the prompt is the gated one inside scan().
+        #expect(source.components(separatedBy: "requestReviewIfAppropriate()").count == 3)
+    }
+
+    @Test("Views reset per item and keep relative times fresh")
+    func viewIdentityAndTimelineWiring() throws {
+        let views = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/Views")
+        let root = try String(contentsOf: views.appendingPathComponent("RootView.swift"), encoding: .utf8)
+        let snapshot = try #require(root.range(of: "SnapshotContentView(snapshotID: id)"))
+        #expect(root[snapshot.upperBound...].prefix(200).contains(".id(id)"))
+        let dashboard = try String(contentsOf: views.appendingPathComponent("DashboardView.swift"), encoding: .utf8)
+        #expect(dashboard.contains("TimelineView(.periodic(from: .now, by: 60))"))
+        #expect(dashboard.contains("lastScanSummary(relativeTo: now)"))
+        let detail = try String(contentsOf: views.appendingPathComponent("PackageDetailView.swift"), encoding: .utf8)
+        #expect(detail.contains("coordinator.saveNoteDraftIfChanged(noteDraft, for: package.id)"))
+    }
+
+    @Test("Last scanned text is computed relative to the given time")
+    func lastScanSummaryRelativeTime() {
+        let scannedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let soon = AppCoordinator.lastScanSummary(for: scannedAt, relativeTo: scannedAt.addingTimeInterval(60))
+        let later = AppCoordinator.lastScanSummary(for: scannedAt, relativeTo: scannedAt.addingTimeInterval(3 * 3600))
+        #expect(soon != later)
+        #expect(soon?.hasPrefix("Last scanned") == true)
+        #expect(AppCoordinator.lastScanSummary(for: nil, relativeTo: scannedAt) == nil)
     }
 
     @Test("APP-F2: Duplicates and Review Candidates expose cleanup controls")
@@ -602,6 +722,48 @@ struct AppCoordinatorPersistenceTests {
         #expect(!SidebarSelection.diskUsage.supportsCleanupControls)
         #expect(!SidebarSelection.aiInstalled.supportsCleanupControls)
         #expect(!SidebarSelection.snapshot(UUID()).supportsCleanupControls)
+    }
+
+    @Test("Layout: selection-free destinations use the full window width")
+    func destinationLayouts() {
+        #expect(SidebarSelection.dashboard.destinationLayout == .fullWidth)
+        #expect(SidebarSelection.projects.destinationLayout == .fullWidth)
+        #expect(SidebarSelection.aiSetup.destinationLayout == .fullWidth)
+        #expect(!SidebarSelection.aiSetup.supportsCleanupControls)
+        #expect(!SidebarSelection.aiSetup.hasSearchField)
+        #expect(SidebarSelection.snapshot(UUID()).destinationLayout == .fullWidth)
+        #expect(SidebarSelection.all.destinationLayout == .listWithDetail)
+        #expect(SidebarSelection.manager(.npm).destinationLayout == .listWithDetail)
+        #expect(SidebarSelection.diskUsage.destinationLayout == .listWithDetail)
+        #expect(SidebarSelection.aiInstalled.destinationLayout == .listWithDetail)
+    }
+
+    @Test("Find: ⌘F is offered only where a search field exists")
+    func findCommandAvailability() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let coordinator = AppCoordinator(dataDirectoryOverride: directory)
+        coordinator.sidebarSelection = .dashboard
+        #expect(!coordinator.canFocusSearch)
+        coordinator.sidebarSelection = .all
+        #expect(coordinator.canFocusSearch)
+        #expect(SidebarSelection.skills.hasSearchField)
+        #expect(!SidebarSelection.diskUsage.hasSearchField)
+    }
+
+    @Test("Grant panel shows hidden files for dot-folders and home")
+    func grantPanelHiddenFiles() {
+        let home = UserHome.directory
+        #expect(FolderAccessManager.shouldShowHiddenFiles(for: nil))
+        #expect(FolderAccessManager.shouldShowHiddenFiles(for: home))
+        #expect(FolderAccessManager.shouldShowHiddenFiles(for: home.appendingPathComponent(".claude")))
+        #expect(!FolderAccessManager.shouldShowHiddenFiles(for: URL(fileURLWithPath: "/usr")))
+    }
+
+    @Test("VoiceOver reads a human removal-safety label")
+    func removalSafetyLabels() {
+        #expect(RemovalSafetyBadge.label(for: .leaveAlone) == "Leave alone")
+        #expect(RemovalSafetyBadge.label(for: .safe) == "Safe to remove")
     }
 
     @Test("APP-F2: sidebar reconciliation removes cleanup selections outside the new scope")

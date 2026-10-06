@@ -1,3 +1,4 @@
+import InstalloryCore
 import Foundation
 
 struct GrantedDirectory: Identifiable, Sendable {
@@ -7,13 +8,13 @@ struct GrantedDirectory: Identifiable, Sendable {
 
     var displayPath: String {
         path.replacingOccurrences(
-            of: FileManager.default.homeDirectoryForCurrentUser.path,
+            of: UserHome.directory.path,
             with: "~"
         )
     }
 
     var managersUnlocked: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let home = UserHome.directory.path
         if path.hasPrefix("/opt/homebrew") || path.hasPrefix("/usr/local") {
             return "Homebrew, pip, npm, RubyGems"
         } else if path.hasPrefix("\(home)/.pyenv") {

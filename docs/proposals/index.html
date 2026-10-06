@@ -1,0 +1,450 @@
+<title>Installory Roadmap Picker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a single reading column of proposal "receipts", grouped by area, with a sticky selection bar. */
+:root {
+  --bg: #f5f6f8; --surface: #ffffff; --ink: #16181d; --muted: #5a6070; --line: #e1e4ea;
+  --accent: #5a49d6; --accent-soft: #ece9ff;
+  --good: #1d7f54; --good-soft: #e3f4ec; --warn: #9a5c00; --warn-soft: #fbf0dc; --crit: #b93434; --crit-soft: #fbe7e7;
+  --display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --body: "IBM Plex Sans", -apple-system, "Helvetica Neue", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111217; --surface: #1a1c23; --ink: #e9eaef; --muted: #9ba1ae; --line: #2b2e38;
+  --accent: #a597ff; --accent-soft: #272340;
+  --good: #57c996; --good-soft: #17301f; --warn: #f0b552; --warn-soft: #33270f; --crit: #ff8585; --crit-soft: #3a1b1b;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #111217; --surface: #1a1c23; --ink: #e9eaef; --muted: #9ba1ae; --line: #2b2e38;
+  --accent: #a597ff; --accent-soft: #272340;
+  --good: #57c996; --good-soft: #17301f; --warn: #f0b552; --warn-soft: #33270f; --crit: #ff8585; --crit-soft: #3a1b1b;
+  color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--body); }
+.wrap { max-width: 920px; margin: 0 auto; padding: 40px 18px 120px; display: flex; flex-direction: column; gap: 40px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.1; font-weight: 700; }
+h2 { font-size: 24px; font-weight: 700; }
+h3 { font-size: 17px; font-weight: 600; font-family: var(--body); letter-spacing: 0; }
+p { margin: 0; }
+.eyebrow { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.lede { font-size: 17px; color: var(--muted); max-width: 66ch; }
+header { display: flex; flex-direction: column; gap: 14px; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { font: 500 12px/1 var(--mono); padding: 6px 9px; border-radius: 6px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); }
+
+section { display: flex; flex-direction: column; gap: 16px; }
+.sec-head { display: flex; flex-direction: column; gap: 6px; }
+.sec-head p { color: var(--muted); max-width: 70ch; }
+
+.diag { display: grid; gap: 10px; }
+.diag li { list-style: none; display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; }
+.diag ol, .diag ul { margin: 0; padding: 0; display: grid; gap: 10px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 7px; justify-self: center; }
+.dot.crit { background: var(--crit); } .dot.warn { background: var(--warn); } .dot.good { background: var(--good); }
+
+.callout { border: 1px solid var(--crit); background: var(--crit-soft); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
+.callout strong { color: var(--crit); }
+code { font: 13px var(--mono); background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; word-break: break-word; }
+
+.bundles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+.bundle { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.bundle p { color: var(--muted); font-size: 14px; }
+.bundle .ids { font: 12px/1.5 var(--mono); color: var(--muted); }
+button { font: 500 14px var(--body); cursor: pointer; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); padding: 7px 12px; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, input:focus-visible + .card, .filter:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); }
+.bundle button { align-self: flex-start; margin-top: auto; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 6px; position: sticky; top: env(safe-area-inset-top, 0px); background: var(--bg); padding-block: 10px; z-index: 2; }
+.filter { font: 500 13px var(--body); padding: 6px 11px; border-radius: 999px; }
+.filter[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+.group { display: flex; flex-direction: column; gap: 10px; }
+.group-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; padding-top: 8px; }
+.group-head .eyebrow { color: var(--accent); }
+.group-head p { color: var(--muted); font-size: 14px; flex-basis: 100%; }
+.items { display: flex; flex-direction: column; gap: 10px; }
+.item input { position: absolute; opacity: 0; pointer-events: none; }
+.card { display: grid; grid-template-columns: 26px 1fr; gap: 4px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: border-color .15s; }
+.card:hover { border-color: var(--muted); }
+.item input:checked + .card { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.box { width: 20px; height: 20px; border: 1.5px solid var(--muted); border-radius: 5px; margin-top: 2px; display: grid; place-items: center; }
+.item input:checked + .card .box { background: var(--accent); border-color: var(--accent); }
+.item input:checked + .card .box::after { content: ""; width: 10px; height: 5px; border-left: 2px solid var(--surface); border-bottom: 2px solid var(--surface); transform: rotate(-45deg) translate(1px,-1px); }
+.card-main { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.title-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.id { font: 500 13px var(--mono); color: var(--accent); }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { font: 500 11px/1 var(--mono); padding: 4px 7px; border-radius: 5px; background: var(--bg); color: var(--muted); border: 1px solid var(--line); letter-spacing: .02em; }
+.pill.e-S { color: var(--good); background: var(--good-soft); border-color: transparent; }
+.pill.e-M { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+.pill.e-L { color: var(--crit); background: var(--crit-soft); border-color: transparent; }
+.pill.st-done { color: var(--surface); background: var(--good); border-color: var(--good); }
+.pill.st-part { color: var(--warn); background: var(--warn-soft); border-color: var(--warn); }
+.pill.p0 { color: var(--surface); background: var(--crit); border-color: var(--crit); }
+.what { color: var(--ink); }
+.why { color: var(--muted); font-size: 14px; }
+.why b { color: var(--ink); font-weight: 600; }
+
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+.plain { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.plain p { color: var(--muted); font-size: 14px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; color: var(--muted); font-size: 13px; align-items: center; }
+
+.bar { position: fixed; left: 0; right: 0; bottom: 0; background: var(--surface); border-top: 1px solid var(--line); padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px)); z-index: 5; }
+.bar-inner { max-width: 920px; margin: 0 auto; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.bar .count { font: 500 14px var(--mono); margin-right: auto; }
+#fallback { width: 100%; min-height: 120px; font: 12px var(--mono); background: var(--bg); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.sources { color: var(--muted); font-size: 13px; display: grid; gap: 4px; }
+@media (prefers-reduced-motion: reduce) { .card { transition: none; } }
+@media (max-width: 520px) { .wrap { padding-top: 24px; } .card { padding: 12px; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <span class="eyebrow">Audit · 5 Oct 2026 · v1.5.0 build 11</span>
+    <h1>Installory, from package list to AI-coding checkup</h1>
+    <p class="lede">I audited the code, ran a build, and read the vault history, the App Store listing, the website, and the competing tools. The proposals below are grouped by area. Items marked <b>Built</b> or <b>Partly built</b> were done in the follow-up session on branch <code>claude/installory-audit-features-33686e</code>; none of it is released yet. Tick the ones you want, then use <b>Copy selection</b> at the bottom and paste it back into the chat. Agentic work starts from that list.</p>
+    <div class="meta">
+      <span class="chip">~21k lines Swift</span><span class="chip">~880 Swift tests</span><span class="chip">0 App Store ratings</span><span class="chip">0 GitHub stars</span><span class="chip">site ~2 releases behind</span><span class="chip">Follow-up session: 18 built · 7 partly built</span>
+    </div>
+  </header>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">Diagnosis</span><h2>Why it doesn't give people a reason to download yet</h2></div>
+    <div class="diag"><ul>
+      <li><span class="dot crit"></span><p><b>The main question it answers is one few people ask.</b> "Which packages do I have, across managers?" matters to you, but a beginner doesn't wake up wanting an inventory. Their questions are "what did my AI just do to my Mac?", "why is Python broken?", "did I leak a key?" and "can I delete this?". Only the last one is answered today.</p></li>
+      <li><span class="dot crit"></span><p><b>The AI features are shallow, hidden, or possibly broken.</b> An "agent CLI" is a row saying a config folder exists, with its folder date shown as the install date. Install history is off by default and needs a second folder grant. Skills show generic filler even though the app already reads their real descriptions. In the sandbox, home-relative scanning points at the app's container (see the red box below).</p></li>
+      <li><span class="dot warn"></span><p><b>Beginners get dropped at the hard step.</b> Cleanup ends with "copy this and run it in Terminal", with no walkthrough. The copy uses jargon throughout: payload, shadowed, provenance, baseline, cask, dangling symlink.</p></li>
+      <li><span class="dot warn"></span><p><b>Nobody can find it.</b> The subtitle "Understand your packages" contains no words people search for. There are two engineer-style screenshots, no ratings prompt, and the website still describes the 1.3-era app. The website repo has no git remote.</p></li>
+      <li><span class="dot good"></span><p><b>The foundation is strong and rare.</b> It is sandboxed, offline, read-only and MIT, with invariants enforced in CI and about 880 tests. Every competing AI-tooling app runs commands, edits configs, or ships outside the App Store. That trust model supports a better pitch: <i>the safe, read-only checkup for a Mac you code on with AI.</i></p></li>
+    </ul></div>
+    <div class="callout">
+      <p><strong>Possible P0: home folder resolves to the sandbox container.</strong></p>
+      <p>Inside the App Sandbox, <code>FileManager.default.homeDirectoryForCurrentUser</code> returns <code>~/Library/Containers/&lt;bundle-id&gt;/Data</code>. I checked this today with a sandboxed test bundle. Installory passes that value to the Agent CLI, editor-extension, Cargo, pipx, nvm, pyenv and uv lookups, and uses it to build the 22-item "Grant Recommended" menu (<code>AppCoordinator.swift:1468</code>, <code>CanonicalDirectory.swift:22</code>). Install history is unaffected because it uses the bookmark URL. One end-to-end check on the App Store build will confirm how much is affected. If confirmed, many users have never seen the app's AI features.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">Shortcuts</span><h2>Suggested bundles</h2><p>Each button adds a bundle to your selection. You can still untick individual items afterwards.</p></div>
+    <div class="bundles" id="bundles"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">Proposals</span><h2>Pick what to build</h2>
+      <div class="legend"><span><span class="pill e-S">S</span> under one agent session</span><span><span class="pill e-M">M</span> one to two sessions</span><span><span class="pill e-L">L</span> three or more</span><span><span class="pill">users</span> <span class="pill">portfolio</span> <span class="pill">store</span> = who benefits most</span></div>
+    </div>
+    <div class="filters" id="filters" role="toolbar" aria-label="Filter proposals"></div>
+    <div id="groups" class="items"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">Considered and set aside</span><h2>What I'd skip, and why</h2></div>
+    <div class="two" id="skip"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">Your call</span><h2>Decisions only you can make</h2><p>My recommendation comes first in each.</p></div>
+    <div class="two" id="decisions"></div>
+  </section>
+
+  <section>
+    <div class="sec-head"><span class="eyebrow">Evidence</span><h2>What this is based on</h2></div>
+    <div class="sources">
+      <p>Code: full read of <code>App/Sources</code> and <code>Installory/Sources</code>, file and line references inline. Unsigned Debug build run on macOS 27 with existing local data. The Home layout and truncation issues were seen directly.</p>
+      <p>Vault: project note (stale at 1.4.0), 2026-05 to 2026-09 session logs, the website and portfolio notes, and the dormant-project audit (which found the roadmap "self-reports as finished").</p>
+      <p>Market: the App Store listing, installory.app and GitHub as of today. Competitors: Cork, Applite, Pearcleaner, DevCleaner, CodexBar, opcode, Loadout, MyMCP and MCP Orchestrator. Pain points: Anthropic's Claude Code docs, GitHub issues and the GitGuardian 2025 report. Reddit evidence is indirect.</p>
+      <p>Unverified: the opencode MCP key name, Codex paths (third-party docs), and the <code>~/.claude/file-history</code> format. A9 and A2 start with a short spike to check them.</p>
+    </div>
+  </section>
+</div>
+
+<div class="bar" role="region" aria-label="Selection">
+  <div class="bar-inner">
+    <span class="count" id="count">0 selected</span>
+    <button id="clear" type="button">Clear</button>
+    <button id="copy" type="button" class="primary">Copy selection</button>
+    <textarea id="fallback" hidden readonly aria-label="Selection text"></textarea>
+  </div>
+</div>
+
+<script>
+const GROUPS = [
+  { key: "F", name: "Fix first", blurb: "Trust and correctness. Do these before adding anything, because several new features build on them." },
+  { key: "O", name: "First run and setup", blurb: "Today a beginner needs 3–4 folder grants and a hidden Settings toggle before the AI features show anything." },
+  { key: "A", name: "The AI-coding checkup", blurb: "New reasons to download. Each one fits the read-only, offline, no-subprocess rules." },
+  { key: "L", name: "Help people understand", blurb: "This is the original goal of the app, and right now it lives only in tooltips." },
+  { key: "D", name: "Look and native craft", blurb: "Native macOS polish that users notice and that stands out in a portfolio." },
+  { key: "E", name: "Engineering", blurb: "What a code reviewer reads first." },
+  { key: "G", name: "Getting it in front of people", blurb: "Store, site, GitHub and portfolio. Website deploys and store submission stay with you." },
+];
+const P = [
+  ["F1","Use the real home folder inside the sandbox","S",["users"],true,
+   "Work out the real home folder once, from <code>getpwuid(getuid())</code> or the user's home grant. Pass it to every scanner, to the Grant Recommended menu and to the open-panel suggestion. Add a regression test that fails when a scanner sees a container path.",
+   "Verified: sandboxed <code>homeDirectoryForCurrentUser</code> is the container. Unit tests pass a home folder in directly, so they never hit this."],
+  ["F2","Let Home use the whole window","S",["users","portfolio"],false,
+   "Show Home, Disk Usage, Projects, AI Installed and the Skills summary across the content and detail columns instead of in the narrow list column.",
+   "Seen in the running app: Home's cards stack in a column about 180pt wide, and the wide right pane says \"No Package Selected\" (<code>RootView.swift:111</code>). It's the first screen anyone sees."],
+  ["F3","Make \"Safe to free up\" count only safe items","S",["users"],false,
+   "Filter the bundle to the <i>safe</i> verdict and to visible packages, and exclude rows whose script is only a comment.",
+   "<code>FreeUpSpace.swift:47</code> ignores the verdict and the hidden flag. It can rank \"remove with care\" items, or a whole agent config folder, as safe. That contradicts the trust promise in the 1.5 release notes."],
+  ["F4","Make scripts safe to paste","S",["users"],false,
+   "Wrap the script body in a subshell, or steer users to <code>bash script.sh</code> instead of pasting. Stop offering cleanup for agent CLIs and skill folders, whose scripts are only comments.",
+   "Scripts start with <code>set -euo pipefail</code> (<code>ScriptGenerator.swift:178</code>). Pasted into an open zsh, that changes the user's shell, and a later error can close the Terminal window."],
+  ["F5","Show Codex and opencode installs properly","S",["users"],false,
+   "Render Codex and opencode session context in the detail narrative and in AI Installed. Change the \"Claude Code\"-only wording to name whichever agent did it.",
+   "The data is collected, but <code>NarrativeRenderer</code> and <code>AIInstalledView</code> only read the Claude Code context."],
+  ["F6","Show the descriptions the app already reads","S",["users"],false,
+   "Keep the SKILL.md <code>description</code> and VS Code/Cursor <code>displayName</code> and <code>description</code>. Fix pipx lookups. Add corpus entries for <code>@anthropic-ai/claude-code</code> and <code>opencode-ai</code>.",
+   "<code>AgentSkillScanner.swift:282</code> parses the skill description, then drops it. Every skill shows the same generic sentence. pipx keys never match the corpus."],
+  ["F7","Clear out the small correctness bugs","S",["users"],false,
+   "Bundled fixes:<br>• A note draft can carry over to the next package (no <code>.id</code> on the detail view).<br>• \"Results may be incomplete\" shows whenever any manager is simply absent.<br>• Saving the restore script fails silently.<br>• VoiceOver reads \"leaveAlone\".<br>• \"Scan on launch\" no longer scans.<br>• ⌘F doesn't focus search.",
+   "Each is small. Together they make the app feel less reliable than its test suite deserves."],
+  ["F8","Fix truncation at the default window size","S",["users","portfolio"],false,
+   "Keep manager badges on one line, give the sidebar a minimum width, and replace the cramped \"Grant Recommended / Custom…\" footer with a single button.",
+   "Seen at the default size: \"Homebrew…\", \"Review Can…\", an npm badge wrapping to \"np / m\", and \"G… / Cus-tom…\" in the footer."],
+
+  ["O1","Rebuild onboarding around AI setups","M",["users","store"],false,
+   "Rewrite the four pages around \"what's on your Mac and what your AI tools did\". Ask for the home folder (hidden files visible, with a list of what is read and what never is) plus Homebrew. Make install history its own clear opt-in step, with a preview.",
+   "Onboarding lists eight managers, never mentions AI tools, and grants only <code>/opt/homebrew</code>. The AI features need a home grant plus a separate toggle in Settings → Privacy."],
+  ["O2","Add a coverage card in place of sidebar status text","S",["users"],false,
+   "Home says \"You're seeing 4 of 9 areas. Add your home folder to include your AI tools and Node/Python versions\", with one button.",
+   "Today Scan Coverage shows raw strings such as \"No agent CLI config directory found or granted\" in caption text in the sidebar."],
+  ["O3","Make sample data show the whole product","S",["store","portfolio"],false,
+   "Add example projects, MCP servers, Codex and opencode installs, findings and a timeline to demo mode.",
+   "App Review, store visitors and hiring reviewers all see demo mode first, and it currently has no projects and only part of the AI story."],
+
+  ["A1","Add an AI Tools overview","M",["users","portfolio"],false,
+   "A dedicated sidebar group with one page per agent (Claude Code, Codex, opencode, Cursor, Gemini CLI, Windsurf, VS Code). Each shows the real version from npm or Homebrew receipts the app already scans, where its config lives, and its skills, extensions, MCP servers and install history.",
+   "Today an agent is a \"this folder exists\" row, and its folder date appears as the install date (<code>AgentCliScanner.swift</code>)."],
+  ["A2","MCP server audit (flagship)","L",["users","portfolio","store"],false,
+   "One table of every MCP server across Claude Desktop, Claude Code (user, project and local), Cursor, Codex, opencode and VS Code. Each is flagged when:<br>• it's defined differently in two apps<br>• its command isn't on disk<br>• an API key is typed straight into the config (shown masked)<br>• it's loaded by an app other than the one the user expects<br>Popular servers get plain-English descriptions. From <code>~/.claude.json</code>, parse only the MCP keys, because that file also holds the sign-in session.",
+   "<b>No read-only MCP audit exists</b>, on the App Store or anywhere else; every MCP manager edits configs or runs a proxy. Config confusion across apps is one of the most common beginner complaints."],
+  ["A3","Review agent rules and permissions","M",["users","portfolio"],false,
+   "Find CLAUDE.md, AGENTS.md, .cursor/rules and GEMINI.md, both globally and per project. Flag \"AGENTS.md here, but Claude Code won't read it\" and oversized instruction files. From Claude Code settings, list the allow rules collected through \"don't ask again\", plus bypass mode and hooks, each explained in plain English.",
+   "Beginners click \"always allow\" and forget. Seeing everything they've silently approved is a real safety feature, and it's all read-only file parsing."],
+  ["A4","Secrets check","M",["users","store"],false,
+   "Within granted project folders, find .env files that .gitignore doesn't cover, and key-shaped strings (sk-ant-, sk-, AKIA, ghp_ and similar) in configs and MCP env blocks. Show only the file, line and masked prefix. Never store or export values. Home shows \"Exposed keys: 0\".",
+   "GitGuardian counted about 28.6M secrets leaked on GitHub in 2025. AI-assisted beginners are a named contributor. No native, beginner-friendly checker exists."],
+  ["A5","\"What changed\" timeline","M",["users","portfolio"],false,
+   "One chronological feed of scan changes, install history, and new skills, MCP servers and extensions. Example: \"This week Claude Code installed 6 packages and added 2 MCP servers; you installed 1.\" Add a chart of installs per week, you vs. agents.",
+   "The scan-run history is already stored (<code>ScanRunDAO</code>) but never shown. This gives people a reason to reopen the app every week."],
+  ["A6","Flag unusual packages and check an offline advisory list","M",["users","portfolio"],false,
+   "Flag agent-installed packages whose names aren't in the 33k bundled corpus: \"we've never seen this name; check it.\" Match global packages and project lockfiles against a bundled, dated list of known-malicious npm/PyPI versions.",
+   "AI models invent package names in about 20% of samples (USENIX 2025), and attackers register those names. The 2025 Shai-Hulud worms hit 700+ npm packages. The corpus and install history are already in the app."],
+  ["A7","Environment doctor for Python, Node and PATH","M",["users"],false,
+   "List every Python, Node and Ruby install (Homebrew, nvm, pyenv, uv, mise, volta, system). Read the PATH lines in ~/.zshrc and ~/.zprofile to show which copy <i>likely</i> wins, labelled as likely. Explain the \"externally-managed-environment\" pip error before it happens.",
+   "Duplicates' \"Wins on PATH\" badge uses the app's own minimal launchd PATH, not the user's shell PATH. Multiple Pythons and Nodes are a top beginner complaint."],
+  ["A8","Make Projects worth opening","M",["users"],false,
+   "Scan two levels deep and keep results across launches. Break out node_modules, .venv, .next and build sizes. For each project, show git present or not, .env present, agent rules, MCP file, and last agent session. Skip package-manager roots.",
+   "Projects currently checks only direct children of a grant, forgets everything on relaunch, and will likely list <code>/opt/homebrew</code> (a git repo) as a project."],
+  ["A9","Recovery help for files an agent changed (spike first)","L",["users","portfolio"],false,
+   "Claude Code keeps pre-edit copies in <code>~/.claude/file-history</code> for about 30 days. Show the files an agent changed in each session, and let the user save an original through a Save panel, which the current entitlement already allows.",
+   "This is read-only help for the \"my agent broke my project\" moment. The format isn't documented, so start with a short spike."],
+
+  ["L1","\"Ask your agent\" prompts","S",["users","portfolio"],false,
+   "Give every finding (duplicate Python, unused package, broken MCP server, exposed key) a <b>Copy prompt for Claude Code / Codex</b> button. The prompt carries the context and an \"explain each step before running it\" instruction. Add one-click \"Copy my setup for my AI\" using the existing environment report.",
+   "Your users already work through agents. This turns a report into a safe next step without Installory running anything. High leverage, small build."],
+  ["L2","Built-in glossary and (?) explainers","M",["users"],false,
+   "A searchable Learn view with about 40 terms (PATH, package manager, global vs. project, cask, venv, MCP, skill, snapshot, dependency), linked from inline (?) buttons.",
+   "There's no glossary today. Explanations live in <code>.help</code> tooltips, which most people never discover."],
+  ["L3","Plain-language copy pass","S",["users","store"],false,
+   "Rename: Provenance → Install history, Review candidates → Possibly unused, Measured payload → Size on disk, Shadowed → Hidden by another copy, Baseline → Saved setup. Keep the precise term as secondary text.",
+   "The original goal was helping less technical people. The current wording assumes they already know the terms."],
+  ["L4","Guided \"run it yourself\" sheet","S",["users"],false,
+   "A step-by-step sheet: save the script, open Terminal, run <code>bash ~/Downloads/x.sh</code>, what you'll see, how to undo. Optionally save it as a .command file so it opens in Terminal on double-click; the user still reviews and runs it.",
+   "Today it says \"copy or save it and run it yourself in Terminal\" and stops there."],
+  ["L5","Explainer pages for each package manager","M",["users"],false,
+   "One bundled page each for Homebrew, pip, pipx, uv, npm, Cargo and RubyGems: what it is, how things end up there, how to remove things safely, and common errors.",
+   "Mostly writing. It makes the app something people learn from, not just a list."],
+
+  ["D1","Visual identity","M",["portfolio","store"],false,
+   "A custom accent colour, a new app icon, and a badge palette where pip, pipx, uv and agent CLIs don't all share one blue.",
+   "The icon is two stock SVGs (one is literally <code>search(1).svg</code>) on a default gradient. There's no AccentColor asset, so the app takes the system accent."],
+  ["D2","A checkup-style Home","M",["users","portfolio","store"],false,
+   "Replace the count tiles with four status rows: Installed tools, AI tools, Exposed secrets, Space. Each gets a colour, a one-line verdict and a next step. Depends on F2.",
+   "It reads like a doctor's summary instead of a page of numbers, and it's the screenshot that sells the reposition."],
+  ["D3","Menu bar extra","S",["users","portfolio"],false,
+   "\"3 new tools this week · 2.1 GB reclaimable · 0 exposed keys\", with quick links into the app.",
+   "Cheap to build, glanceable, and keeps the app in view between visits."],
+  ["D4","App Intents for Shortcuts and Spotlight","M",["portfolio","users"],false,
+   "\"What did my agent install today?\", \"Snapshot my setup\", \"Copy my setup for my AI\". On macOS 26 these also appear as Spotlight actions.",
+   "A current Apple API that reviewers recognise, and a natural fit for a read-only data app."],
+  ["D5","Desktop widget","M",["portfolio"],false,
+   "A small or medium WidgetKit \"Dev Mac checkup\" widget showing the four status rows from D2.",
+   "Visible craft. Do it after D2 so the widget has something to show."],
+  ["D6","Liquid Glass and motion polish","S",["portfolio"],false,
+   "Build with the macOS 26 SDK and use standard glass materials where they apply. Add symbol effects during a scan and number transitions, and respect Reduce Motion. Keep macOS 14 support with <code>#available</code>.",
+   "The whole app has one <code>withAnimation</code>. A little motion makes it feel made in 2026."],
+  ["D7","More charts","M",["portfolio","users"],false,
+   "Disk use over time from snapshots, installs per week split by who installed them, and a dependency graph view.",
+   "There's one Swift Charts bar chart today. The snapshot history is already there to chart."],
+  ["D8","Keyboard and accessibility pass","S",["portfolio","users"],false,
+   "⌘F, a ⌘K jump-to palette for any package or section, and a VoiceOver audit of every view.",
+   "Reviewers test the keyboard first. ⌘F is already a known issue in RELEASE.md."],
+
+  ["E1","Split AppCoordinator","L",["portfolio"],false,
+   "Break the 1,740-line coordinator into feature stores: Scan, Cleanup, Snapshots, Install history, Settings.",
+   "APP-11 has been deferred since July. It's cheapest to do while the A-series features are being added."],
+  ["E2","Sandbox smoke test in CI","M",["portfolio"],false,
+   "Run a test inside a sandboxed host that checks real-home resolution and scanner coverage against a fixture home folder.",
+   "This would have caught F1. Right now the CI invariant gates check source text, not runtime sandbox behaviour."],
+  ["E3","Tidy-ups","S",["portfolio"],false,
+   "A route enum with a switch in <code>RootView</code>. Move <code>InventoryDerivedCache</code> out of <code>SortOrder.swift</code>. Implement or delete <code>nearbyProjects</code>, which is always empty. Fix the stale \"nine managers\" comment.",
+   "These are the small things a code reviewer notices."],
+  ["E4","Automated screenshots","M",["store","portfolio"],false,
+   "Render key screens from sample data in tests with ImageRenderer, at App Store sizes, in light and dark.",
+   "The README, website and store listing stay in sync automatically, and the store and site get dark-mode screenshots (website item F8)."],
+  ["E5","Architecture document","S",["portfolio"],false,
+   "Add <code>docs/ARCHITECTURE.md</code> with a diagram of scanners → reconciler → GRDB → views, plus the invariants and why they exist.",
+   "Anyone evaluating your work reads this before the code."],
+
+  ["G1","Rewrite the App Store listing","S",["store"],false,
+   "A subtitle with search words, such as \"Check your AI coding setup\". Keywords: claude, homebrew, npm, python, mcp, cursor, cleanup, disk. Five or six captioned screenshots, each showing one benefit. Lead the description with the safety outcome and explain the mechanism after.",
+   "\"Understand your packages\" spends the 30 indexed characters on words nobody searches for. The current description leads with \"shell scripts\", which reads as a hurdle."],
+  ["G2","Ask for ratings","S",["store"],false,
+   "Call <code>requestReview</code> after a good moment, such as a scan that found reclaimable space or a clean checkup. Apple limits it to 3 prompts a year.",
+   "There are 0 ratings today, which is the single biggest conversion drag on the listing."],
+  ["G3","Update the website, and back it up first","M",["store","portfolio"],false,
+   "Add a git remote to the website repo, then update the copy for 1.5 and later: AI tools, skills, uv, dashboard, restore points. Deploys need your approval.",
+   "The website repo has <b>no remote</b>; one <code>git clean</code> in the app folder would delete it. The site still lists seven managers and says nothing about AI agents."],
+  ["G4","GitHub presence","S",["portfolio"],false,
+   "A repo description, topics (claude-code, mcp, macos, swiftui, homebrew), a hero GIF, release notes for each version, and a few good-first-issues.",
+   "0 stars and pre-AI topics. It's a cheap way to look maintained."],
+  ["G5","Demo video and launch posts","M",["store","portfolio"],false,
+   "A 90-second walkthrough, then Show HN, r/ClaudeAI and r/macapps posts timed with the AI-checkup release.",
+   "Website item F4 (demo video) was deferred in July. A release with something new to show is the right time."],
+  ["G6","Update the portfolio case study","S",["portfolio"],false,
+   "Lead with \"sandboxed, no network, no subprocess, ~880 tests, invariants enforced in CI\", plus the AI-checkup story and real metrics once they exist.",
+   "The site currently says \"six/seven managers\" and doesn't mention the 1.5 agent features."],
+];
+const BUNDLES = [
+  ["Fix-first sprint","Trust and correctness before anything new. About 2–3 agent sessions.",["F1","F2","F3","F4","F5","F6","F7","F8"]],
+  ["1.6: The AI coding checkup","The reposition release. Fixes, a new first run, MCP and rules audits, agent prompts, a new Home, and the store listing.",["F1","F2","F3","F4","F5","F6","F7","F8","O1","O2","O3","A1","A2","A3","L1","L3","D2","G1","G2"]],
+  ["1.7: What changed and is it safe","Timeline, secrets, supply chain, environment doctor, better Projects.",["A4","A5","A6","A7","A8","L2","D3"]],
+  ["Portfolio polish","What reviewers notice: identity, native APIs, architecture, screenshots, presence.",["D1","D4","D6","E1","E2","E4","E5","G3","G4","G6"]],
+];
+const SKIP = [
+  ["Token or cost tracker","CodexBar (22k★) and ccusage already do this well. Live limits aren't in local files, and bundled prices would go stale with no network access."],
+  ["Port or process killer","Needs process listing and kill, which neither the sandbox nor the no-subprocess rule allows. Many free menu bar apps already do it."],
+  ["node_modules or cache cleaner as the headline","Crowded (DevCleaner, npkill, kondo, Pearcleaner). It works as part of A8, not as the pitch."],
+  ["An in-app Run or one-click uninstall","It would break the read-only promise, which is your main point of difference and what lets the app ship sandboxed."],
+  ["Fetching descriptions or advisories online","Breaks the no-network promise. Ship updates with releases instead, unless you decide otherwise below."],
+  ["Go binaries and Mac App Store product IDs","Both need running a command (go version -m, mas), so they stay deliberate gaps."],
+];
+const DECISIONS = [
+  ["Keep \"no network, ever\"?","Recommend: yes. Ship the advisory list (A6) inside releases and show its date. The alternative is an opt-in, signed list download, which keeps it fresh but weakens the simplest privacy claim you have."],
+  ["Minimum macOS","Recommend: stay on 14 and add Liquid Glass and Spotlight actions behind #available. Raising to 26 simplifies code but loses users."],
+  ["How much folder access to ask for","Recommend: one home-folder grant with an explicit list of what's read. Per-folder grants are narrower but take a beginner 3–4 panels."],
+  ["Who comes first: users or reviewers?","This changes the order. For users, start with F, O1, A2, A4 and L1. For hiring reviewers, start with F, D2, D4, E1, E4 and G6. Both start with the fixes."],
+  ["Public wording","Your rule is never to say \"vibe coder\" on the site. I've used \"AI coding\" throughout. Confirm the same applies to the store listing and launch posts."],
+];
+
+const TAG = { users: "users", portfolio: "portfolio", store: "store" };
+// Build status after the 5–6 Oct 2026 session (branch claude/installory-audit-features-33686e; not released).
+const STATUS = {
+  F1:"done",F2:"done",F3:"done",F4:"done",F5:"done",F6:"done",F7:"done",F8:"done",
+  O1:"done",O2:"done",O3:"partial",
+  A1:"partial",A2:"done",A3:"done",A4:"partial",
+  L1:"done",L3:"done",L4:"done",
+  D2:"done",D8:"partial",
+  E2:"partial",E3:"partial",E5:"done",
+  G1:"partial",G2:"done",
+};
+const STATUS_NOTE = {
+  O3:"Sample AI setup added; sample projects not yet.",
+  A1:"AI Setup covers configs; no per-agent overview page yet.",
+  A4:"Keys in AI tool settings only; project .env scan not built.",
+  D8:"Command-F done; no command palette or VoiceOver audit yet.",
+  E2:"Unit and source-scan guards; no sandboxed CI host.",
+  E3:"Router is a switch; other tidy-ups remain.",
+  G1:"Draft in docs/app-store-listing.md; not submitted.",
+};
+let selected = new Set();
+try { selected = new Set(JSON.parse(localStorage.getItem("installory-picks") || "[]")); } catch (e) {}
+let filter = "all";
+const save = () => { try { localStorage.setItem("installory-picks", JSON.stringify([...selected])); } catch (e) {} };
+const byId = Object.fromEntries(P.map(p => [p[0], p]));
+
+function render() {
+  const groupsEl = document.getElementById("groups");
+  groupsEl.innerHTML = "";
+  for (const g of GROUPS) {
+    const items = P.filter(p => p[0].startsWith(g.key) && (filter === "all" || filter === g.key || (filter === "quick" && p[2] === "S") || p[3].includes(filter)));
+    if (!items.length) continue;
+    const wrap = document.createElement("div");
+    wrap.className = "group";
+    wrap.innerHTML = `<div class="group-head"><span class="eyebrow">${g.key} · ${items.length}</span><h3>${g.name}</h3><p>${g.blurb}</p></div>`;
+    const list = document.createElement("div");
+    list.className = "items";
+    for (const [id, title, effort, tags, p0, what, why] of items) {
+      const lab = document.createElement("label");
+      lab.className = "item";
+      lab.innerHTML = `<input type="checkbox" id="pick-${id}" ${selected.has(id) ? "checked" : ""}>
+        <span class="card"><span class="box" aria-hidden="true"></span>
+          <span class="card-main">
+            <span class="title-row"><span class="id">${id}</span><h3>${title}</h3></span>
+            <span class="pills">${STATUS[id] === "done" ? '<span class="pill st-done">Built</span>' : STATUS[id] === "partial" ? '<span class="pill st-part">Partly built</span>' : ""}${p0 && STATUS[id] !== "done" ? '<span class="pill p0">P0 · verify</span>' : ""}<span class="pill e-${effort}">${effort}</span>${tags.map(t => `<span class="pill">${TAG[t]}</span>`).join("")}</span>
+            <p class="what">${what}</p>
+            <p class="why">${why}</p>${STATUS_NOTE[id] ? `<p class="why"><b>Status:</b> ${STATUS_NOTE[id]}</p>` : ""}
+          </span></span>`;
+      lab.querySelector("input").addEventListener("change", e => { e.target.checked ? selected.add(id) : selected.delete(id); save(); updateCount(); });
+      list.appendChild(lab);
+    }
+    wrap.appendChild(list);
+    groupsEl.appendChild(wrap);
+  }
+  updateCount();
+}
+function updateCount() {
+  document.getElementById("count").textContent = `${selected.size} selected`;
+}
+function renderFilters() {
+  const opts = [["all","All"], ...GROUPS.map(g => [g.key, g.name]), ["quick","Quick wins (S)"], ["users","Best for users"], ["portfolio","Best for portfolio"], ["store","Best for downloads"]];
+  const el = document.getElementById("filters");
+  el.innerHTML = "";
+  for (const [k, label] of opts) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "filter"; b.textContent = label;
+    b.setAttribute("aria-pressed", String(filter === k));
+    b.addEventListener("click", () => { filter = k; renderFilters(); render(); });
+    el.appendChild(b);
+  }
+}
+function renderStatic() {
+  document.getElementById("bundles").innerHTML = "";
+  for (const [name, desc, ids] of BUNDLES) {
+    const d = document.createElement("div");
+    d.className = "bundle";
+    d.innerHTML = `<h3>${name}</h3><p>${desc}</p><span class="ids">${ids.join(" · ")}</span>`;
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = "Add to selection";
+    b.addEventListener("click", () => { ids.forEach(i => selected.add(i)); save(); render(); b.textContent = "Added"; setTimeout(() => b.textContent = "Add to selection", 1400); });
+    d.appendChild(b);
+    document.getElementById("bundles").appendChild(d);
+  }
+  document.getElementById("skip").innerHTML = SKIP.map(([t, d]) => `<div class="plain"><h3>${t}</h3><p>${d}</p></div>`).join("");
+  document.getElementById("decisions").innerHTML = DECISIONS.map(([t, d]) => `<div class="plain"><h3>${t}</h3><p>${d}</p></div>`).join("");
+}
+function selectionText() {
+  const ids = P.map(p => p[0]).filter(i => selected.has(i));
+  if (!ids.length) return "";
+  return `Installory: build these (${ids.length}):\n` + ids.map(i => `- ${i} ${byId[i][1]} [${byId[i][2]}]`).join("\n");
+}
+document.getElementById("copy").addEventListener("click", async () => {
+  const text = selectionText();
+  const btn = document.getElementById("copy");
+  const fb = document.getElementById("fallback");
+  if (!text) { btn.textContent = "Nothing selected"; setTimeout(() => btn.textContent = "Copy selection", 1400); return; }
+  try { await navigator.clipboard.writeText(text); fb.hidden = true; btn.textContent = "Copied"; }
+  catch (e) { fb.value = text; fb.hidden = false; fb.focus(); fb.select(); btn.textContent = "Select and copy below"; }
+  setTimeout(() => btn.textContent = "Copy selection", 1800);
+});
+document.getElementById("clear").addEventListener("click", () => { selected.clear(); save(); document.getElementById("fallback").hidden = true; render(); });
+renderFilters(); renderStatic(); render();
+</script>

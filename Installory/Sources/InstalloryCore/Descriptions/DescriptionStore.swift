@@ -40,8 +40,19 @@ public struct DescriptionStore: Sendable {
 
     /// Returns the one-line plain-English description for the given package, or
     /// nil if the corpus has no entry for it.
+    ///
+    /// pipx and uv tools are PyPI distributions, so when the corpus has no
+    /// manager-specific key they resolve through the shared `pip:` key.
+    /// Well-known agent CLIs (`claude`, `codex`, `opencode`, `cursor`) resolve
+    /// to built-in descriptions when the corpus has no entry.
     public func description(for manager: PackageManager, name: String) -> String? {
-        descriptions[normalizedKey(manager: manager, name: name)]
+        for key in lookupKeys(manager: manager, name: name) {
+            if let text = descriptions[key] { return text }
+        }
+        if manager == .agentCli {
+            return Self.knownAgentCliDescriptions[name.lowercased()]
+        }
+        return nil
     }
 
     /// Returns the corpus description when available, otherwise a per-manager
@@ -51,6 +62,42 @@ public struct DescriptionStore: Sendable {
     public func descriptionOrFallback(for manager: PackageManager, name: String) -> String {
         description(for: manager, name: name) ?? Self.fallback(for: manager)
     }
+
+    /// Resolves the best description for a concrete package row, or nil.
+    ///
+    /// Order: the scanner-supplied ``Package/summary`` for agent skills and
+    /// editor extensions (their own manifests describe them better than a
+    /// name-keyed corpus can), then the corpus / built-in lookup by
+    /// `(manager, name)`, then the summary for any other manager.
+    public func description(for package: Package) -> String? {
+        let summary = package.summary.flatMap { text -> String? in
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        switch package.manager {
+        case .agentSkill, .editorExtension:
+            if let summary { return summary }
+        default:
+            break
+        }
+        return description(for: package.manager, name: package.name) ?? summary
+    }
+
+    /// ``description(for:)-(Package)`` with the per-manager fallback, so a
+    /// package row never shows a bare "no description" state. This is the
+    /// preferred entry point for display.
+    public func descriptionOrFallback(for package: Package) -> String {
+        description(for: package) ?? Self.fallback(for: package.manager)
+    }
+
+    /// Corpus-independent descriptions for agent CLIs Installory recognizes.
+    /// Keyed by the canonical CLI name `AgentCliScanner` assigns.
+    static let knownAgentCliDescriptions: [String: String] = [
+        "claude": "Anthropic's Claude Code, an AI coding agent that works in your terminal and projects.",
+        "codex": "OpenAI's Codex CLI, an AI coding agent that runs in your terminal.",
+        "opencode": "opencode, an open-source AI coding agent for the terminal.",
+        "cursor": "Cursor, an AI code editor; this folder holds its settings and extensions.",
+    ]
 
     /// A concise, human-friendly one-liner for each manager, used when the
     /// corpus has no entry for a specific package.
@@ -85,20 +132,23 @@ public struct DescriptionStore: Sendable {
 
     // MARK: - Private
 
-    private func normalizedKey(manager: PackageManager, name: String) -> String {
-        let normalizedName: String
+    /// Corpus keys to try, most specific first.
+    private func lookupKeys(manager: PackageManager, name: String) -> [String] {
         switch manager {
-        case .pip, .pipx:
-            normalizedName = pep503(name)
+        case .pip:
+            return ["pip:\(pep503(name))"]
+        case .pipx:
+            // The corpus is keyed by PyPI distribution under `pip:`; a pipx-specific
+            // key, if one is ever added, still wins.
+            return ["pipx:\(pep503(name))", "pip:\(pep503(name))"]
         case .uv:
-            return "pip:\(pep503(name))"
+            return ["pip:\(pep503(name))"]
         case .npm:
-            normalizedName = name.lowercased()
+            return ["npm:\(name.lowercased())"]
         default:
             // brew, brewCask, cargo, gem, mas: exact names from registry
-            normalizedName = name
+            return ["\(manager.rawValue):\(name)"]
         }
-        return "\(manager.rawValue):\(normalizedName)"
     }
 
     /// PEP 503 normalization: lowercase then collapse runs of [-_.] to a single hyphen.

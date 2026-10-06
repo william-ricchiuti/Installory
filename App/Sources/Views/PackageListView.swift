@@ -19,6 +19,7 @@ struct PackageListView: View {
             }
         }
         .searchable(text: $coordinator.searchQuery, placement: .toolbar, prompt: "Filter packages")
+        .findCommandFocusable()
         .safeAreaInset(edge: .top, spacing: 0) {
             VStack(spacing: 0) {
                 demoBanner
@@ -249,7 +250,7 @@ struct PackageListView: View {
         ) { pkg in
             PackageRowView(
                 package: pkg,
-                onRemove: pkg.isRemovalScriptEligible ? {
+                onRemove: pkg.isRemovalScriptEligible(strategy: coordinator.removalStrategy) ? {
                     Task { await coordinator.requestRemoval([pkg]) }
                 } : nil
             )
@@ -273,6 +274,7 @@ private struct PackageRowView: View {
                     Text(package.name)
                         .fontWeight(.semibold)
                         .lineLimit(1)
+                        .layoutPriority(1)
                     ManagerBadge(manager: package.manager)
                     RemovalSafetyBadge(verdict: coordinator.removalSafety(for: package))
                     if coordinator.isPinned(package.id) {
@@ -285,7 +287,10 @@ private struct PackageRowView: View {
                 Text(package.version)
                     .font(.system(.caption, design: .monospaced))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
+            // The name column wins over the trailing cleanup annotation.
+            .layoutPriority(1)
             Spacer(minLength: 0)
             CleanupAnnotationView(package: package)
         }

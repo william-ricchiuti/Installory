@@ -48,6 +48,19 @@ struct CleanupSelectionFooter: View {
 
             Spacer()
 
+            AskAgentButton(
+                title: "Ask AI",
+                help: "Copy a prompt that asks your AI assistant to check the selected packages and remove them safely. Installory never sends it anywhere."
+            ) { agent in
+                let selected = coordinator.selectedCleanupPackages
+                let verdicts = coordinator.removalSafetyByPackageID
+                return coordinator.promptBuilder(for: agent).cleanupPrompt(
+                    for: selected,
+                    verdicts: verdicts.filter { id, _ in selected.contains { $0.id == id } }
+                )
+            }
+            .disabled(coordinator.selectedCleanupPackages.isEmpty)
+
             Button("Done") {
                 coordinator.isCleanupMode = false
                 coordinator.selectedForCleanup = []
@@ -92,7 +105,7 @@ struct CleanupSelectionToggle: View {
     @ViewBuilder
     var body: some View {
         if coordinator.isCleanupMode {
-            if package.isRemovalScriptEligible {
+            if package.isRemovalScriptEligible(strategy: coordinator.removalStrategy) {
                 Button {
                     if coordinator.selectedForCleanup.contains(package.id) {
                         coordinator.selectedForCleanup.remove(package.id)
@@ -132,9 +145,23 @@ struct CleanupSelectionToggle: View {
     }
 
     private var ineligibleDescription: String {
+        CleanupSelectionToggle.ineligibleDescription(
+            for: package,
+            strategy: coordinator.removalStrategy
+        )
+    }
+
+    /// Tooltip / VoiceOver text for a row that can't be selected under `strategy`.
+    static func ineligibleDescription(for package: Package, strategy: RemovalStrategy) -> String {
+        if package.isReadOnly {
+            return "\(package.name) is a read-only system package and cannot be removed"
+        }
         if package.manager == .mas {
             return "\(package.name) must be removed manually from Applications"
         }
-        return "\(package.name) is a read-only system package and cannot be removed"
+        if strategy == .uninstall, package.isRemovalScriptEligible(strategy: .trash) {
+            return "Switch to Move to Trash to include \(package.name)"
+        }
+        return "Installory has no removal command for \(package.name); remove it by hand"
     }
 }

@@ -1,15 +1,20 @@
 import InstalloryCore
+import StoreKit
 import SwiftUI
 
 /// Why a dedicated analysis view has no rows to display.
 ///
-/// A positive "no findings" message is reserved for a completed, successful
-/// scan across every supported manager. Saved inventory with unknown coverage,
-/// skipped managers, and failed scans remain explicitly inconclusive.
+/// A positive "no findings" message is reserved for a completed scan in which
+/// no manager failed, timed out or was blocked from its folder. Managers that
+/// simply aren't installed don't make results inconclusive; saved inventory
+/// with unknown coverage, failed or timed-out scans, and tools whose folders
+/// aren't granted yet do.
 enum AnalysisEmptyState: Equatable {
     case scanInProgress
     case noInventory
     case incompleteCoverage
+    /// Incomplete coverage caused only by tools whose folders aren't granted.
+    case foldersNotGranted
     case noResults
 
     static func resolve(
@@ -25,19 +30,27 @@ enum AnalysisEmptyState: Equatable {
             return packageCount == 0 ? .noInventory : .noResults
         }
 
-        let hasCompleteCoverage = PackageManager.allCases.allSatisfy { manager in
-            guard let status = scanStatuses[manager], case .succeeded = status else {
-                return false
+        // A scanner that failed or timed out makes results inconclusive, and
+        // so does one the sandbox kept out of an ungranted folder (the tool is
+        // there, Installory just couldn't read it). Any other `.skipped` means
+        // the manager isn't present on this Mac, which is a complete answer.
+        let hasScanProblem = scanStatuses.values.contains { status in
+            switch status {
+            case .failed, .timedOut: true
+            case .succeeded, .skipped: false
             }
-            return true
         }
-        if !scanStatuses.isEmpty, !hasCompleteCoverage {
+        if hasScanProblem {
             return .incompleteCoverage
+        }
+        if scanStatuses.values.contains(where: \.isAccessNeeded) {
+            return .foldersNotGranted
         }
         if packageCount == 0 {
             return .noInventory
         }
-        return hasCompleteCoverage ? .noResults : .incompleteCoverage
+        // Saved inventory with no scan this session has unknown coverage.
+        return scanStatuses.isEmpty ? .incompleteCoverage : .noResults
     }
 }
 
@@ -47,7 +60,7 @@ extension SidebarSelection {
         switch self {
         case .all, .manager, .duplicates, .orphans, .skills:
             return true
-        case .dashboard, .readOnly, .diskUsage, .aiInstalled, .projects, .snapshot:
+        case .dashboard, .aiSetup, .readOnly, .diskUsage, .aiInstalled, .projects, .snapshot:
             return false
         }
     }
@@ -71,7 +84,7 @@ struct AnalysisEmptyStateView: View {
         switch state {
         case .scanInProgress: "Analysis in Progress"
         case .noInventory: "No Package Inventory"
-        case .incompleteCoverage: "Results May Be Incomplete"
+        case .incompleteCoverage, .foldersNotGranted: "Results May Be Incomplete"
         case .noResults: noResultsTitle
         }
     }
@@ -81,6 +94,7 @@ struct AnalysisEmptyStateView: View {
         case .scanInProgress: "arrow.triangle.2.circlepath"
         case .noInventory: "shippingbox"
         case .incompleteCoverage: "exclamationmark.triangle"
+        case .foldersNotGranted: "folder.badge.questionmark"
         case .noResults: noResultsSystemImage
         }
     }
@@ -92,9 +106,32 @@ struct AnalysisEmptyStateView: View {
         case .noInventory:
             "Grant access to a package directory and run a scan before using this analysis."
         case .incompleteCoverage:
-            "One or more package managers have not completed a successful scan. Review Scan Coverage and scan again before relying on this analysis."
+            "A package manager scan failed or timed out, or this saved inventory hasn\u{2019}t been rescanned yet. Review Scan Coverage and scan again before relying on this analysis."
+        case .foldersNotGranted:
+            "Some tools\u{2019} folders aren\u{2019}t granted yet, so Installory couldn\u{2019}t look inside them. Use Add Folder in the sidebar to allow access, then scan again."
         case .noResults:
             noResultsDescription
+        }
+    }
+}
+
+/// How a sidebar destination uses the window.
+enum DestinationLayout: Equatable {
+    /// Sidebar + list column + package detail column.
+    case listWithDetail
+    /// Sidebar + one full-width view; there is no package selection to detail.
+    case fullWidth
+}
+
+extension SidebarSelection {
+    /// Destinations without a package selection that drives the detail column
+    /// render full width instead of leaving an empty "No Package Selected" pane.
+    var destinationLayout: DestinationLayout {
+        switch self {
+        case .dashboard, .aiSetup, .projects, .snapshot:
+            return .fullWidth
+        case .all, .manager, .readOnly, .duplicates, .orphans, .diskUsage, .aiInstalled, .skills:
+            return .listWithDetail
         }
     }
 }
@@ -102,52 +139,35 @@ struct AnalysisEmptyStateView: View {
 struct RootView: View {
     @Environment(AppCoordinator.self) private var coordinator
     @State private var showingBaselineCompare = false
+    /// Shared by both split-view layouts so a collapsed sidebar stays collapsed
+    /// when switching between full-width and list destinations.
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @Environment(\.requestReview) private var requestReview
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var layout: DestinationLayout {
+        (coordinator.sidebarSelection ?? .all).destinationLayout
+    }
 
     var body: some View {
         @Bindable var coordinator = coordinator
 
-        NavigationSplitView {
-            SidebarView()
-        } content: {
-            if case .dashboard = coordinator.sidebarSelection {
-                DashboardView()
-            } else if case .snapshot(let id) = coordinator.sidebarSelection {
-                SnapshotContentView(snapshotID: id)
-            } else if case .duplicates = coordinator.sidebarSelection {
-                DuplicatesView()
-            } else if case .orphans = coordinator.sidebarSelection {
-                OrphansView()
-            } else if case .diskUsage = coordinator.sidebarSelection {
-                DiskUsageView()
-            } else if case .aiInstalled = coordinator.sidebarSelection {
-                AIInstalledView()
-            } else if case .skills = coordinator.sidebarSelection {
-                SkillsView()
-            } else if case .projects = coordinator.sidebarSelection {
-                ProjectsView()
-            } else {
-                PackageListView()
-            }
-        } detail: {
-            if case .snapshot = coordinator.sidebarSelection {
-                ContentUnavailableView {
-                    Label("Snapshot View", systemImage: "camera.viewfinder")
-                } description: {
-                    Text("Select a package manager section to browse packages in this snapshot.")
+        Group {
+            switch layout {
+            case .fullWidth:
+                NavigationSplitView(columnVisibility: $columnVisibility) {
+                    SidebarView()
+                } detail: {
+                    fullWidthDestination
                 }
-            } else if case .projects = coordinator.sidebarSelection {
-                ContentUnavailableView {
-                    Label("Project Workspaces", systemImage: "folder")
-                } description: {
-                    Text("Select a project to reveal it in Finder.")
-                }
-            } else if let pkg = coordinator.selectedPackage {
-                PackageDetailView(package: pkg)
-            } else {
-                ContentUnavailableView {
-                    Label("No Package Selected", systemImage: "shippingbox")
-                } description: {
-                    Text("Select a package from the list to view its details.")
+            case .listWithDetail:
+                NavigationSplitView(columnVisibility: $columnVisibility) {
+                    SidebarView()
+                } content: {
+                    listDestination
+                        .navigationSplitViewColumnWidth(min: 300, ideal: 360)
+                } detail: {
+                    packageDetail
                 }
             }
         }
@@ -201,23 +221,23 @@ struct RootView: View {
                     .disabled(coordinator.packages.isEmpty || coordinator.isScanning)
 
                     Menu {
-                        Button("Import Baseline\u{2026}", systemImage: "arrow.down.doc") {
+                        Button("Import Saved Setup\u{2026}", systemImage: "arrow.down.doc") {
                             Task { await coordinator.pickBaselineFile() }
                         }
                         .disabled(coordinator.packages.isEmpty)
                         if coordinator.baselinePayload != nil {
-                            Button("Compare with Baseline\u{2026}", systemImage: "arrow.triangle.2.circlepath") {
+                            Button("Compare with Saved Setup\u{2026}", systemImage: "arrow.triangle.2.circlepath") {
                                 showingBaselineCompare = true
                             }
                             Divider()
-                            Button("Clear Baseline", systemImage: "trash", role: .destructive) {
+                            Button("Clear Saved Setup", systemImage: "trash", role: .destructive) {
                                 coordinator.clearBaseline()
                             }
                         }
                     } label: {
-                        Label("Baseline", systemImage: coordinator.baselinePayload != nil ? "checklist" : "doc.badge.arrow.up")
+                        Label("Saved Setup", systemImage: coordinator.baselinePayload != nil ? "checklist" : "doc.badge.arrow.up")
                     }
-                    .help("Compare the inventory against a snapshot captured on another Mac")
+                    .help("Compare this Mac against a setup saved on another Mac")
 
                     Button {
                         Task { await coordinator.refresh() }
@@ -231,9 +251,23 @@ struct RootView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 580)
+        .overlay(alignment: .bottom) {
+            if let notice = coordinator.clipboardNotice {
+                ClipboardNoticeView(message: notice)
+                    .padding(.bottom, 24)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(reduceMotion ? nil : .smooth, value: coordinator.clipboardNotice)
         .task {
+            coordinator.recordLaunchDay()
             await coordinator.hydratePersistedState()
             await coordinator.autoScanIfNeeded()
+        }
+        // The coordinator decides (ReviewPromptPolicy); the view only asks.
+        .onChange(of: coordinator.reviewRequestToken) { _, _ in
+            guard coordinator.onboardingCompleted, !coordinator.isDemoMode else { return }
+            requestReview()
         }
         // Persisted here rather than in PackageListView, which unmounts whenever the
         // user navigates to one of the dedicated sections above.
@@ -279,6 +313,76 @@ struct RootView: View {
         .actionErrorAlert(coordinator: coordinator)
     }
 
+    // MARK: - Destinations
+
+    @ViewBuilder
+    private var fullWidthDestination: some View {
+        switch coordinator.sidebarSelection {
+        case .snapshot(let id):
+            SnapshotContentView(snapshotID: id)
+                // New identity per snapshot so its @State (loading, filters) resets.
+                .id(id)
+        case .projects:
+            ProjectsView()
+        case .aiSetup:
+            AISetupView()
+        default:
+            DashboardView()
+        }
+    }
+
+    @ViewBuilder
+    private var listDestination: some View {
+        switch coordinator.sidebarSelection {
+        case .duplicates:
+            DuplicatesView()
+        case .orphans:
+            OrphansView()
+        case .diskUsage:
+            DiskUsageView()
+        case .aiInstalled:
+            AIInstalledView()
+        case .skills:
+            SkillsView()
+        default:
+            PackageListView()
+        }
+    }
+
+    @ViewBuilder
+    private var packageDetail: some View {
+        if let pkg = coordinator.selectedPackage {
+            PackageDetailView(package: pkg)
+                // Fresh per-package @State (e.g. the note draft).
+                .id(pkg.id)
+        } else {
+            ContentUnavailableView {
+                Label("No Package Selected", systemImage: "shippingbox")
+            } description: {
+                Text("Select a package from the list to view its details.")
+            }
+        }
+    }
+
+}
+
+/// Transient "Copied …" confirmation for menu commands that copy text.
+private struct ClipboardNoticeView: View {
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "checkmark.circle.fill")
+            .font(.callout.weight(.medium))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: Capsule())
+            .overlay { Capsule().strokeBorder(Color.primary.opacity(0.08)) }
+            .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+            .accessibilityAddTraits(.isStaticText)
+            .onAppear {
+                AccessibilityNotification.Announcement(message).post()
+            }
+    }
 }
 
 extension View {

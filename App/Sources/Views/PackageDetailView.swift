@@ -37,6 +37,12 @@ struct PackageDetailView: View {
                 noteDraft = coordinator.note(for: package.id) ?? ""
             }
         }
+        .onDisappear {
+            // Selecting another package replaces this view (`.id(pkg.id)`),
+            // which would drop an unsaved draft. Save it like Save Note does.
+            guard noteLoaded else { return }
+            coordinator.saveNoteDraftIfChanged(noteDraft, for: package.id)
+        }
     }
 
     // MARK: - Sections
@@ -50,19 +56,14 @@ struct PackageDetailView: View {
                 Text(package.version)
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(.secondary)
-                if let desc = coordinator.descriptionStore.description(
-                    for: package.manager,
-                    name: package.name
-                ) {
+                // Package-aware lookup so skill and extension summaries show.
+                if let desc = coordinator.descriptionStore.description(for: package) {
                     Text(desc)
                         .foregroundStyle(.secondary)
                         .font(.callout)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text(coordinator.descriptionStore.descriptionOrFallback(
-                        for: package.manager,
-                        name: package.name
-                    ))
+                    Text(coordinator.descriptionStore.descriptionOrFallback(for: package))
                     .foregroundStyle(.tertiary)
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
@@ -222,7 +223,11 @@ struct PackageDetailView: View {
 
             if !(coordinator.isDemoMode || coordinator.provenanceCollection) {
                 // Provenance is off — show a subtle nudge rather than an empty section.
-                Text("Turn on provenance tracing in Settings \u{2192} Privacy to see how this was installed.")
+                Text("Turn on install history in Settings \u{2192} Privacy to see how this was installed.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else if coordinator.installHistoryNeedsHomeAccess {
+                Text("Install history is on but needs read access to your home folder. Allow it in Settings \u{2192} Privacy.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else if let evidence = coordinator.provenanceByPackageId[package.id] {
@@ -232,10 +237,10 @@ struct PackageDetailView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                if evidence.claudeCodeContext != nil {
+                if let attribution = evidence.agentAttribution {
                     HStack(spacing: 6) {
                         AIBadge()
-                        Text("Installed during a Claude Code session")
+                        Text("Installed during a \(attribution.agentName) session")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -262,6 +267,12 @@ struct PackageDetailView: View {
 
             removalSafetyVerdictBanner
 
+            AskAgentButton(
+                help: "Copy a prompt that asks your AI assistant to check whether \(package.name) is still needed before removing it. Installory never sends it anywhere."
+            ) { agent in
+                removalPrompt(for: agent)
+            }
+
             if package.isReadOnly {
                 removalMessage(
                     icon: "lock.fill",
@@ -273,9 +284,38 @@ struct PackageDetailView: View {
                     text: "Mac App Store apps are removed by dragging them from /Applications to the Trash \u{2014} mas has no uninstall command."
                 )
             } else if let cmd = ScriptGenerator().removalCommand(for: package) {
-                removableContent(cmd)
+                if package.isRemovalScriptEligible(strategy: coordinator.removalStrategy) {
+                    removableContent(cmd)
+                } else {
+                    removalMessage(
+                        icon: "info.circle",
+                        text: ineligibleRemovalText
+                    )
+                    rawCommandDisclosure(cmd)
+                }
             }
         }
+    }
+
+    /// Why no script is offered for a row that has only a review comment
+    /// (or a command under the other strategy).
+    private var ineligibleRemovalText: String {
+        if coordinator.removalStrategy == .uninstall,
+           package.isRemovalScriptEligible(strategy: .trash) {
+            return "Installory can only remove this by moving it to the Trash. Choose \u{201C}Move to Trash\u{201D} in Cleanup Mode to include it in a script."
+        }
+        return "Installory can\u{2019}t build a removal command for this. The note below explains how to remove it by hand."
+    }
+
+    private func removalPrompt(for agent: PromptAgent) -> AgentPrompt {
+        coordinator.promptBuilder(for: agent).removalPrompt(
+            for: package,
+            dependentsCount: coordinator.reverseDependencyIndex.dependents(of: package).count,
+            verdict: coordinator.removalSafety(for: package),
+            installedBy: AgentPromptBuilder.installerLabel(
+                from: coordinator.provenanceByPackageId[package.id]
+            )
+        )
     }
 
     @ViewBuilder

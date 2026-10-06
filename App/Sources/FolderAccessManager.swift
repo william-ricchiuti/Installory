@@ -63,6 +63,10 @@ final class FolderAccessManager {
         // directory, which makes macOS present an authentication sheet. When the
         // suggestion isn't usable, start in the user's home folder instead.
         panel.directoryURL = Self.safePanelDirectory(for: suggestedURL)
+        // Many package roots are dot-folders (~/.claude, ~/.cargo). Show hidden
+        // items when the panel starts at one of them or at the home folder so
+        // they can actually be selected.
+        panel.showsHiddenFiles = Self.shouldShowHiddenFiles(for: suggestedURL)
 
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         // AppKit implicitly starts security-scoped access for URLs returned by
@@ -184,7 +188,21 @@ final class FolderAccessManager {
                 return suggestedURL
             }
         }
-        return fm.homeDirectoryForCurrentUser
+        return UserHome.directory
+    }
+
+    /// True when the grant panel should reveal hidden items: the suggestion is
+    /// (or lives inside) a dot-folder, is the home folder itself, or is missing
+    /// so the panel falls back to home (where the dot-folders live).
+    static func shouldShowHiddenFiles(for suggestedURL: URL?) -> Bool {
+        let home = standardizedPath(UserHome.directory.path)
+        guard let suggestedURL else { return true }
+        let path = standardizedPath(suggestedURL.path)
+        if path == home { return true }
+        if URL(fileURLWithPath: path).pathComponents.contains(where: { $0.hasPrefix(".") && $0 != "." && $0 != ".." }) {
+            return true
+        }
+        return standardizedPath(safePanelDirectory(for: suggestedURL).path) == home
     }
 
     var hasAnyGrant: Bool { !storedBookmarks.isEmpty }

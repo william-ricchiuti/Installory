@@ -13,9 +13,7 @@ struct DuplicatesView: View {
     /// **Caveat:** A sandboxed GUI app may have a different PATH than the
     /// user's interactive terminal. Results are framed accordingly in the UI.
     private var pathComponents: [String] {
-        (ProcessInfo.processInfo.environment["PATH"] ?? "")
-            .split(separator: ":", omittingEmptySubsequences: true)
-            .map(String.init)
+        AppCoordinator.launchPathComponents
     }
 
     // MARK: Grouped data
@@ -71,7 +69,7 @@ struct DuplicatesView: View {
                             "That can cause version confusion \u{2014} a command like \u{201C}node\u{201D} " +
                             "resolves to whichever install is first on your PATH. " +
                             "Where we can determine which install is active, " +
-                            "you\u{2019}ll see a \u{201C}Wins on PATH\u{201D} badge. " +
+                            "you\u{2019}ll see which copy \u{201C}Runs first\u{201D} and which is \u{201C}Hidden by another copy\u{201D}. " +
                             "This is based on the environment at app launch " +
                             "and may not match your terminal\u{2019}s PATH. " +
                             "Select an install below to open its detail pane and generate a removal script."
@@ -88,15 +86,7 @@ struct DuplicatesView: View {
                 if !data.active.isEmpty {
                     Section {
                         ForEach(data.active, id: \.group.name) { entry in
-                            Section(entry.group.name) {
-                                ForEach(entry.group.packages) { pkg in
-                                    DuplicateInstallRow(
-                                        package: pkg,
-                                        standing: entry.standings[pkg.id] ?? .unknown
-                                    )
-                                    .tag(pkg.id)
-                                }
-                            }
+                            duplicateGroupSection(entry)
                         }
                     } header: {
                         Label("These can cause the wrong version to run",
@@ -109,15 +99,7 @@ struct DuplicatesView: View {
                 if !data.potential.isEmpty {
                     Section {
                         ForEach(data.potential, id: \.group.name) { entry in
-                            Section(entry.group.name) {
-                                ForEach(entry.group.packages) { pkg in
-                                    DuplicateInstallRow(
-                                        package: pkg,
-                                        standing: entry.standings[pkg.id] ?? .unknown
-                                    )
-                                    .tag(pkg.id)
-                                }
-                            }
+                            duplicateGroupSection(entry)
                         }
                     } header: {
                         Label("Possible conflicts \u{2014} worth reviewing",
@@ -130,15 +112,7 @@ struct DuplicatesView: View {
                 if !data.benign.isEmpty {
                     Section {
                         ForEach(data.benign, id: \.group.name) { entry in
-                            Section(entry.group.name) {
-                                ForEach(entry.group.packages) { pkg in
-                                    DuplicateInstallRow(
-                                        package: pkg,
-                                        standing: entry.standings[pkg.id] ?? .unknown
-                                    )
-                                    .tag(pkg.id)
-                                }
-                            }
+                            duplicateGroupSection(entry)
                         }
                     } header: {
                         Label("Likely harmless \u{2014} tools that share a name",
@@ -185,6 +159,7 @@ struct DuplicatesView: View {
             placement: .toolbar,
             prompt: "Search duplicates"
         )
+        .findCommandFocusable()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             CleanupSelectionFooter()
         }
@@ -195,6 +170,36 @@ struct DuplicatesView: View {
                 return
             }
             coordinator.selectedPackage = nil
+        }
+    }
+
+    /// One duplicate group with an "Ask your agent" prompt in its header. The
+    /// PATH standings computed for the view go into the prompt as-is.
+    private func duplicateGroupSection(
+        _ entry: (group: DuplicateGroup, standings: [String: PathStanding])
+    ) -> some View {
+        Section {
+            ForEach(entry.group.packages) { pkg in
+                DuplicateInstallRow(
+                    package: pkg,
+                    standing: entry.standings[pkg.id] ?? .unknown
+                )
+                .tag(pkg.id)
+            }
+        } header: {
+            HStack(spacing: 8) {
+                Text(entry.group.name)
+                Spacer(minLength: 0)
+                AskAgentButton(
+                    title: "Ask AI",
+                    help: "Copy a prompt that asks your AI assistant which copy of \(entry.group.name) to keep. Installory never sends it anywhere."
+                ) { agent in
+                    coordinator.promptBuilder(for: agent)
+                        .duplicatePrompt(for: entry.group, standings: entry.standings)
+                }
+                .controlSize(.small)
+                .menuStyle(.borderlessButton)
+            }
         }
     }
 }
@@ -326,22 +331,24 @@ private struct PathStandingBadge: View {
     var body: some View {
         switch standing {
         case .wins:
-            Text("Wins on PATH")
+            Text("Runs first")
                 .font(.system(.caption2, design: .default, weight: .medium))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(Color.green.opacity(0.15))
                 .foregroundStyle(Color.green)
                 .clipShape(Capsule())
+                .help("This copy runs when you type the command (based on the PATH Installory saw at launch)")
 
         case .shadowed:
-            Text("Shadowed")
+            Text("Hidden by another copy")
                 .font(.system(.caption2, design: .default, weight: .medium))
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
                 .background(Color.secondary.opacity(0.15))
                 .foregroundStyle(.secondary)
                 .clipShape(Capsule())
+                .help("Another copy earlier on your PATH runs instead of this one")
 
         case .unknown:
             EmptyView()

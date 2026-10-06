@@ -14,7 +14,7 @@ public struct GemScanner: PackageScanner, Sendable {
 
     public init(
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        homeDirectory: URL = UserHome.directory,
         environment: PackageManagerEnvironment = .current
     ) {
         self.directoryAccess = directoryAccess

@@ -116,7 +116,7 @@ public struct PythonInterpreterDiscovery: Sendable {
 
     public init(
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
-        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser,
+        homeDirectory: URL = UserHome.directory,
         environment: PackageManagerEnvironment = .current,
         projectVenvRoots: [URL] = []
     ) {

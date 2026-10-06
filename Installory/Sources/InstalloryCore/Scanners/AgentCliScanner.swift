@@ -5,14 +5,38 @@ import Foundation
 /// Each candidate is the per-tool config directory a coding agent creates in
 /// the user's home directory. Discovery is purely additive: candidates that do
 /// not exist as directories are ignored, and duplicates are removed.
+///
+/// Granted URLs contribute in two ways, mirroring how skill discovery treats
+/// granted roots: a granted folder that is itself a recognized agent config
+/// root (for example a directly granted `~/.codex`) is used as-is, and a
+/// granted folder that contains the recognized config roots at the same
+/// relative locations as a home directory (for example a granted home folder)
+/// contributes those children. Project-level `.claude` folders inside granted
+/// project directories are deliberately not treated as CLI installs: they hold
+/// per-project settings, not an installed agent.
 struct AgentCliDiscovery {
+    static let relativeConfigRoots = [".claude", ".codex", ".config/opencode", ".cursor"]
+
     static func cliRoots(
         homeDirectory: URL,
+        grantedURLs: [URL] = [],
         directoryAccess: any DirectoryAccessProvider
     ) -> [URL] {
         var candidates: [URL] = []
-        for relative in [".claude", ".codex", ".config/opencode", ".cursor"] {
+        for relative in relativeConfigRoots {
             candidates.append(homeDirectory.appendingPathComponent(relative, isDirectory: true))
+        }
+        for granted in grantedURLs {
+            let standardized = granted.standardizedFileURL
+            if AgentCliScanner.cliName(for: standardized).isEmpty {
+                if isHomeLike(standardized, comparedTo: homeDirectory) {
+                    for relative in relativeConfigRoots {
+                        candidates.append(standardized.appendingPathComponent(relative, isDirectory: true))
+                    }
+                }
+            } else {
+                candidates.append(standardized)
+            }
         }
 
         var seen: Set<String> = []
@@ -26,6 +50,15 @@ struct AgentCliDiscovery {
             roots.append(standardized)
         }
         return roots.sorted { $0.path < $1.path }
+    }
+
+    /// A granted folder is treated as a home directory only when it is the
+    /// home directory itself (possibly reached through a different spelling,
+    /// such as a symlinked volume path) — never an arbitrary project folder.
+    private static func isHomeLike(_ granted: URL, comparedTo homeDirectory: URL) -> Bool {
+        let home = homeDirectory.standardizedFileURL
+        if granted.path == home.path { return true }
+        return granted.resolvingSymlinksInPath().path == home.resolvingSymlinksInPath().path
     }
 }
 
@@ -64,7 +97,8 @@ public struct AgentCliScanner: PackageScanner, Sendable {
     private let now: @Sendable () -> Date
 
     /// Discovers and uses every existing agent CLI config root under the user's
-    /// home directory.
+    /// home directory, plus granted folders that are themselves agent config
+    /// roots (see ``AgentCliDiscovery``).
     public init(
         homeDirectory: URL,
         environment: PackageManagerEnvironment = .current,
@@ -75,6 +109,7 @@ public struct AgentCliScanner: PackageScanner, Sendable {
     ) {
         let roots = AgentCliDiscovery.cliRoots(
             homeDirectory: homeDirectory,
+            grantedURLs: grantedURLs,
             directoryAccess: directoryAccess
         )
         self.init(
@@ -185,7 +220,7 @@ public struct AgentCliScanner: PackageScanner, Sendable {
 
     /// Maps a config root path to the canonical CLI name, or nil when the root
     /// is not a recognized agent config directory.
-    private static func cliName(for root: URL) -> String {
+    static func cliName(for root: URL) -> String {
         let path = root.standardizedFileURL.path
         if path.hasSuffix("/.claude") { return "claude" }
         if path.hasSuffix("/.codex") { return "codex" }

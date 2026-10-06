@@ -9,6 +9,7 @@ import SwiftUI
 /// snapshot, the sheet must not claim one was taken.
 struct CleanupScriptSheetView: View {
     let result: CleanupResult
+    @State private var restoreSaveError: String?
 
     var body: some View {
         ScriptSheetView(
@@ -21,6 +22,19 @@ struct CleanupScriptSheetView: View {
                 denylistWarning
             }
             undoSection
+        }
+        .alert(
+            "Couldn't Save Restore Script",
+            isPresented: Binding(
+                get: { restoreSaveError != nil },
+                set: { if !$0 { restoreSaveError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { restoreSaveError = nil }
+        } message: {
+            if let restoreSaveError {
+                Text(restoreSaveError)
+            }
         }
     }
 
@@ -51,7 +65,7 @@ struct CleanupScriptSheetView: View {
                         NSPasteboard.general.setString(result.restoreScript.scriptText, forType: .string)
                     }
                     Button("Save Restore Script\u{2026}") {
-                        saveRestoreScript()
+                        Task { await saveRestoreScript() }
                     }
                 }
             }
@@ -62,15 +76,20 @@ struct CleanupScriptSheetView: View {
         }
     }
 
-    private func saveRestoreScript() {
+    private func saveRestoreScript() async {
         let panel = NSSavePanel()
         panel.title = "Save Restore Script"
         panel.nameFieldStringValue = "installory-restore.sh"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        // NSSavePanel implicitly starts security-scoped access for its URL; the
+        // write is awaited before this scope ends so access stays valid for it.
         defer { url.stopAccessingSecurityScopedResource() }
-        Task {
-            try? await ScriptFileWriter.write(result.restoreScript.scriptText, to: url)
+        do {
+            try await ScriptFileWriter.write(result.restoreScript.scriptText, to: url)
+            restoreSaveError = nil
+        } catch {
+            restoreSaveError = "The restore script wasn't written to \(url.lastPathComponent). \(error.localizedDescription)"
         }
     }
 

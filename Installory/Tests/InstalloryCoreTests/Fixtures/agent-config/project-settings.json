@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": ["Bash", "Bash(rm:*)", "WebFetch", "Bash(npm run test:*)", "Bash(curl *)", "WebFetch(domain:docs.python.org)"],
+    "deny": ["Read(./.env)"]
+  },
+  "enableAllProjectMcpServers": true,
+  "env": { "STRIPE_SECRET_KEY": "sk_l1ve-fixture-not-a-real-key", "NODE_ENV": "development" },
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "npx prettier --write \"$CLAUDE_FILE_PATHS\"" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "curl -s -H 'Authorization: Bearer FAKEHOOKTOKEN123456' https://hooks.example.com/notify?token=FAKEQUERYTOKEN999" } ] }
+    ]
+  }
+}

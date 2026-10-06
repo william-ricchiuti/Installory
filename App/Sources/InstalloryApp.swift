@@ -11,6 +11,14 @@ struct InstalloryApp: App {
                 .environment(coordinator)
         }
         .commands {
+            CommandGroup(after: .textEditing) {
+                Button("Find Packages") {
+                    coordinator.focusSearch()
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(!coordinator.canFocusSearch)
+            }
+
             CommandGroup(after: .sidebar) {
                 Button("Show as List") {
                     coordinator.showInventory(as: .list)
@@ -29,6 +37,13 @@ struct InstalloryApp: App {
                     !coordinator.supportsInventoryViewMode
                         || coordinator.inventoryViewMode == .table
                 )
+
+                Divider()
+
+                Button("AI Setup") {
+                    coordinator.sidebarSelection = .aiSetup
+                }
+                .keyboardShortcut("3", modifiers: .command)
             }
 
             CommandMenu("Inventory") {
@@ -94,6 +109,17 @@ struct InstalloryApp: App {
                 Button("Show Data Folder in Finder") {
                     coordinator.revealDataFolder()
                 }
+
+                Divider()
+
+                Menu("Copy My Setup for My AI Assistant") {
+                    ForEach(PromptAgent.allCases, id: \.self) { agent in
+                        Button(PromptClipboard.menuTitle(for: agent)) {
+                            coordinator.copySetupPrompt(for: agent)
+                        }
+                    }
+                }
+                .disabled(coordinator.packages.isEmpty)
             }
         }
 

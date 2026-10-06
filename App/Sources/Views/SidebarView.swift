@@ -15,6 +15,7 @@ struct SidebarView: View {
             snapshotsSection
         }
         .listStyle(.sidebar)
+        .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 360)
         .navigationTitle("Installory")
         .safeAreaInset(edge: .bottom) {
             bottomBar
@@ -28,11 +29,26 @@ struct SidebarView: View {
             NavigationLink(value: SidebarSelection.dashboard) {
                 Label("Home", systemImage: "house")
             }
+            NavigationLink(value: SidebarSelection.aiSetup) {
+                Label("AI Setup", systemImage: "cpu")
+            }
+            .badge(coordinator.aiSetupAttentionCount)
+            .accessibilityValue(aiSetupBadgeAccessibilityValue)
+            .help("Your MCP servers, AI instruction files and agent permissions (\u{2318}3)")
             if !coordinator.projectWorkspaces.isEmpty {
                 NavigationLink(value: SidebarSelection.projects) {
                     Label("Projects (\(coordinator.projectWorkspaces.count))", systemImage: "folder")
                 }
             }
+        }
+    }
+
+    private var aiSetupBadgeAccessibilityValue: String {
+        let count = coordinator.aiSetupAttentionCount
+        switch count {
+        case 0: return ""
+        case 1: return "1 thing to look at"
+        default: return "\(count) things to look at"
         }
     }
 
@@ -77,7 +93,7 @@ struct SidebarView: View {
             let orphanCount = coordinator.orphanedPackages.count
             if orphanCount > 0 {
                 NavigationLink(value: SidebarSelection.orphans) {
-                    Label("Review Candidates (\(orphanCount))", systemImage: "leaf.circle")
+                    Label("Possibly Unused (\(orphanCount))", systemImage: "leaf.circle")
                 }
             }
 
@@ -207,6 +223,13 @@ struct SidebarView: View {
                                 .lineLimit(2)
                         }
                         Spacer(minLength: 0)
+                        if entry.status.isAccessNeeded {
+                            addFolderMenu {
+                                Text("Add Folder")
+                                    .font(.caption2)
+                            }
+                            .accessibilityLabel("Add a folder for \(entry.manager.displayName)")
+                        }
                     }
                     .selectionDisabled()
                     .help(coverageDetail(entry.status))
@@ -219,6 +242,7 @@ struct SidebarView: View {
     private func coverageIcon(_ status: ScannerStatus) -> String {
         switch status {
         case .succeeded:  return "checkmark.circle.fill"
+        case .skipped where status.isAccessNeeded: return "lock.circle"
         case .skipped:    return "minus.circle"
         case .failed:     return "xmark.octagon.fill"
         case .timedOut:   return "clock.badge.exclamationmark"
@@ -228,6 +252,7 @@ struct SidebarView: View {
     private func coverageColor(_ status: ScannerStatus) -> Color {
         switch status {
         case .succeeded: return .green
+        case .skipped where status.isAccessNeeded: return .orange
         case .skipped:   return .secondary
         case .failed:    return .red
         case .timedOut:  return .orange
@@ -238,12 +263,14 @@ struct SidebarView: View {
         switch status {
         case .succeeded(let count, _):
             return "\(count) package\(count == 1 ? "" : "s")"
-        case .skipped(let reason):
-            return reason
+        case .skipped where status.isAccessNeeded:
+            return ScannerStatus.friendlyAccessNeededDescription
+        case .skipped:
+            return ScannerStatus.friendlySkipDescription
         case .failed(let reason, _):
             return reason
         case .timedOut:
-            return "Scan timed out"
+            return "Scan took too long and was stopped"
         }
     }
 
@@ -288,32 +315,33 @@ struct SidebarView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(spacing: 6) {
-                Menu {
-                    DirectoryGrantsView()
-                } label: {
-                    Label("Grant Recommended ▾", systemImage: "folder.badge.plus")
-                        .font(.callout)
-                        .lineLimit(1)
-                }
-                .menuStyle(.borderlessButton)
-                .help("Grant access to a recommended directory")
-
-                Spacer(minLength: 0)
-
-                Button {
-                    Task { await coordinator.grantCustomDirectory() }
-                } label: {
-                    Label("Custom…", systemImage: "folder")
-                        .font(.callout)
-                }
-                .buttonStyle(.borderless)
-                .help("Grant access to a custom directory")
+            addFolderMenu {
+                Label("Add Folder", systemImage: "folder.badge.plus")
+                    .font(.callout)
+                    .lineLimit(1)
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(.bar)
+    }
+
+    /// "Add Folder" menu: recommended grants plus a custom folder picker.
+    private func addFolderMenu<MenuLabel: View>(@ViewBuilder label: () -> MenuLabel) -> some View {
+        Menu {
+            Section("Recommended") {
+                DirectoryGrantsView()
+            }
+            Divider()
+            Button("Custom Folder\u{2026}", systemImage: "folder") {
+                Task { await coordinator.grantCustomDirectory() }
+            }
+        } label: {
+            label()
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Grant read access to a recommended or custom folder")
     }
 
     // MARK: - Helpers (Task F)

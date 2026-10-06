@@ -43,6 +43,13 @@ public struct Package: Identifiable, Codable, Equatable, Hashable, Sendable {
     public let artifactPaths: [String]?
     /// Timestamp of the most recent scan that observed this package.
     public let lastSeen: Date
+    /// One-line description supplied by the package itself, when its scanner
+    /// can read one (a skill's `SKILL.md` frontmatter `description`, an editor
+    /// extension's `package.json` `description`/`displayName`). Nil for
+    /// managers without such metadata and for rows persisted by older versions;
+    /// encoded only when present, so the JSON shape is unchanged otherwise.
+    /// Prefer ``DescriptionStore/descriptionOrFallback(for:)`` for display.
+    public let summary: String?
 
     public init(
         id: String,
@@ -58,7 +65,8 @@ public struct Package: Identifiable, Codable, Equatable, Hashable, Sendable {
         isReadOnly: Bool,
         dependencies: [String],
         artifactPaths: [String]? = nil,
-        lastSeen: Date
+        lastSeen: Date,
+        summary: String? = nil
     ) {
         self.id = id
         self.manager = manager
@@ -74,6 +82,7 @@ public struct Package: Identifiable, Codable, Equatable, Hashable, Sendable {
         self.dependencies = dependencies
         self.artifactPaths = artifactPaths
         self.lastSeen = lastSeen
+        self.summary = summary
     }
 }
 
@@ -128,6 +137,7 @@ extension Package: FetchableRecord, PersistableRecord {
 
         let lastSeenTs: Double = row["last_seen"]
         lastSeen = Date(timeIntervalSince1970: lastSeenTs)
+        summary = row.hasColumn("summary") ? row["summary"] : nil
     }
 
     public func encode(to container: inout PersistenceContainer) throws {
@@ -151,5 +161,6 @@ extension Package: FetchableRecord, PersistableRecord {
             container["artifact_paths"] = nil
         }
         container["last_seen"] = lastSeen.timeIntervalSince1970
+        container["summary"] = summary
     }
 }

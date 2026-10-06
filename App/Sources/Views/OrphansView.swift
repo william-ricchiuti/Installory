@@ -37,8 +37,9 @@ struct OrphansView: View {
         .searchable(
             text: $coordinator.searchQuery,
             placement: .toolbar,
-            prompt: "Search review candidates"
+            prompt: "Search possibly unused packages"
         )
+        .findCommandFocusable()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             CleanupSelectionFooter()
         }
@@ -57,7 +58,7 @@ struct OrphansView: View {
     private var emptyState: some View {
         AnalysisEmptyStateView(
             state: analysisEmptyState,
-            noResultsTitle: "No Review Candidates",
+            noResultsTitle: "Nothing Possibly Unused",
             noResultsSystemImage: "checkmark.seal",
             noResultsDescription: "Every explicitly installed package in the completed scan has at least one same-manager package that depends on it."
         )
@@ -111,7 +112,7 @@ struct OrphansView: View {
             }
         }
         .listStyle(.inset)
-        .navigationTitle("Review Candidates")
+        .navigationTitle("Possibly Unused")
     }
 
     // MARK: - Helpers
@@ -143,6 +144,7 @@ private struct OrphanRow: View {
                     Text(package.name)
                         .fontWeight(.semibold)
                         .lineLimit(1)
+                        .layoutPriority(1)
                     ManagerBadge(manager: package.manager)
                 }
                 Text(package.version)

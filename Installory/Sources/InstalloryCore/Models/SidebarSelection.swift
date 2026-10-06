@@ -2,6 +2,8 @@ import Foundation
 
 public enum SidebarSelection: Hashable, Sendable {
     case dashboard
+    /// The AI setup audit: MCP servers, instruction files and agent permissions.
+    case aiSetup
     case all
     case manager(PackageManager)
     case readOnly
@@ -18,6 +20,7 @@ extension SidebarSelection {
     public var userDefaultsKey: String {
         switch self {
         case .dashboard: "dashboard"
+        case .aiSetup: "aiSetup"
         case .all: "all"
         case .manager(let m): "manager.\(m.rawValue)"
         case .readOnly: "readOnly"
@@ -34,6 +37,7 @@ extension SidebarSelection {
     public init?(userDefaultsKey: String) {
         switch userDefaultsKey {
         case "dashboard": self = .dashboard
+        case "aiSetup": self = .aiSetup
         case "all": self = .all
         case "readOnly": self = .readOnly
         case "duplicates": self = .duplicates
@@ -82,6 +86,9 @@ extension [Package] {
             return []
         case .diskUsage:
             // DiskUsageView reads a generation-keyed aggregate instead of package rows.
+            return []
+        case .aiSetup:
+            // AISetupView reads the AI setup audit; filteredPackages is not consulted.
             return []
         case .aiInstalled:
             // AIInstalledView reads coordinator.aiInstalledPackages directly; filteredPackages is not consulted.

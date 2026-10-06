@@ -54,6 +54,8 @@ private enum DefaultsKey {
     static let firstScanTaken        = "app.installory.firstScanSnapshotTaken"
     static let migrationCompleted    = "app.installory.migration.fromBackshelf"
     static let provenanceCollection  = "app.installory.settings.provenanceCollection"
+    static let launchDays            = "app.installory.review.launchDays"
+    static let lastReviewPromptVersion = "app.installory.review.lastPromptedVersion"
 }
 
 @Observable
@@ -85,6 +87,24 @@ final class AppCoordinator {
     var inventoryViewMode: InventoryViewMode = .list
     var tableSortOrder: [PackageTableSortDescriptor] = PackageTableSortDescriptor.defaultOrder
     var selectedPackage: Package?
+
+    /// Incremented by ⌘F; searchable views observe it to focus their field.
+    private(set) var searchFocusRequest = 0
+
+    /// True when the current destination shows a search field.
+    var canFocusSearch: Bool {
+        sidebarSelection?.hasSearchField ?? false
+    }
+
+    /// Focuses the visible search field (Edit ▸ Find Packages, ⌘F).
+    func focusSearch() {
+        guard canFocusSearch else { return }
+        if #available(macOS 15.0, *) {
+            searchFocusRequest &+= 1
+        } else {
+            SearchFieldFocuser.focusSearchField(in: NSApp.keyWindow ?? NSApp.mainWindow)
+        }
+    }
 
     /// A user-initiated action failed. Presented as an alert and cleared on dismiss.
     ///
@@ -132,6 +152,19 @@ final class AppCoordinator {
 
     var onboardingCompleted: Bool = UserDefaults.standard.bool(forKey: DefaultsKey.onboardingCompleted)
 
+    // MARK: - Rating prompt
+
+    /// Incremented when a rating request should be shown. RootView observes it
+    /// and calls SwiftUI's `requestReview`; the coordinator stays UI-free.
+    private(set) var reviewRequestToken = 0
+
+    // MARK: - Clipboard notice
+
+    /// Short confirmation shown after a menu command copies text (for example
+    /// "Copied setup for Claude Code"). Cleared automatically.
+    private(set) var clipboardNotice: String?
+    @ObservationIgnored private var clipboardNoticeTask: Task<Void, Never>?
+
     // MARK: - Demo mode
 
     /// When true, the app is showing pre-populated sample data instead of a real
@@ -152,7 +185,15 @@ final class AppCoordinator {
     // MARK: - Settings
 
     var snapshotBeforeRemoval: SnapshotPreference = .ask
-    var removalStrategy: RemovalStrategy = .uninstall
+    /// Which removal the generated scripts use. Changing it re-scopes the
+    /// cleanup selection, because some rows (real skill folders) only have a
+    /// runnable command when moving to the Trash.
+    var removalStrategy: RemovalStrategy = .uninstall {
+        didSet {
+            guard oldValue != removalStrategy else { return }
+            reconcileCleanupSelectionForCurrentSidebar()
+        }
+    }
     var scanOnLaunch: Bool = true
 
     /// When true, Installory reads shell history and Claude Code session logs
@@ -204,6 +245,13 @@ final class AppCoordinator {
     /// directories. In-memory only — recomputed on each scan, never persisted.
     private(set) var projectWorkspaces: [ProjectWorkspace] = []
 
+    /// The latest AI setup audit (MCP servers, instruction files, agent
+    /// permissions). In-memory only; recomputed on each scan when the home
+    /// folder is granted. Values in it were masked at parse time.
+    private(set) var agentConfigAudit: AgentConfigAudit?
+    /// When `agentConfigAudit` was produced.
+    private(set) var agentConfigAuditedAt: Date?
+
     /// Minimum interval between automatic scans triggered by `autoScanIfNeeded`.
     /// Manual `refresh()` ignores this — the user pressing ⌘R always rescans.
     private static let autoScanCooldown: TimeInterval = 60
@@ -214,8 +262,34 @@ final class AppCoordinator {
     /// exists in `FolderAccessManager`, indicating the user has granted read
     /// access for provenance collection.
     var provenanceAccessGranted: Bool {
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let homePath = UserHome.directory.path
         return folderAccess.grantedPath(covering: homePath) != nil
+    }
+
+    /// Install history is switched on but cannot run: no grant covers the real
+    /// home folder. Before 1.6 the check used the sandbox container's home, so
+    /// upgraders can have the toggle on without a usable grant. Shown honestly
+    /// rather than flipping the stored toggle.
+    var installHistoryNeedsHomeAccess: Bool {
+        !isDemoMode && provenanceCollection && !provenanceAccessGranted
+    }
+
+    // MARK: - Computed: AI setup
+
+    /// True when the AI setup audit can see the user's settings (home folder
+    /// granted), or in demo mode.
+    var aiSetupAccessGranted: Bool {
+        isDemoMode || provenanceAccessGranted
+    }
+
+    /// The audit to show, or nil when access was revoked or nothing has run.
+    var aiSetupAudit: AgentConfigAudit? {
+        aiSetupAccessGranted ? agentConfigAudit : nil
+    }
+
+    /// Warning and critical findings, for the sidebar badge.
+    var aiSetupAttentionCount: Int {
+        aiSetupAudit.map(AISetupPresentation.attentionCount) ?? 0
     }
 
     // MARK: - Init
@@ -305,6 +379,8 @@ final class AppCoordinator {
         scanStatuses = [:]
         lastScanCompletedAt = Date()
         provenanceByPackageId = DemoData.demoProvenanceByPackageId()
+        agentConfigAudit = DemoData.agentConfigAudit()
+        agentConfigAuditedAt = Date()
         // Dismiss onboarding for the demo session without persisting the flag —
         // a developer who runs `-demo` once shouldn't permanently skip onboarding.
         onboardingCompleted = true
@@ -326,6 +402,8 @@ final class AppCoordinator {
         searchQuery = ""
         sidebarSelection = .all
         provenanceByPackageId = [:]
+        agentConfigAudit = nil
+        agentConfigAuditedAt = nil
         onboardingCompleted = UserDefaults.standard.bool(forKey: DefaultsKey.onboardingCompleted)
         hasHydratedPersistedState = false
         Task {
@@ -372,7 +450,7 @@ final class AppCoordinator {
         switch sidebarSelection {
         case nil, .all, .manager, .readOnly:
             true
-        case .dashboard, .duplicates, .orphans, .diskUsage, .aiInstalled, .skills, .projects, .snapshot:
+        case .dashboard, .aiSetup, .duplicates, .orphans, .diskUsage, .aiInstalled, .skills, .projects, .snapshot:
             false
         }
     }
@@ -444,9 +522,69 @@ final class AppCoordinator {
         inventoryDerivedCache.diskUsageSummary(for: packages)
     }
 
-    /// Ranked safe-to-remove candidates plus their combined reclaimable payload.
+    /// IDs of packages the user has hidden from the inventory.
+    var hiddenPackageIDs: Set<String> {
+        Set(packageUserStates.filter { $0.value.isHidden }.map(\.key))
+    }
+
+    /// Ranked safe-to-remove candidates plus their combined reclaimable size.
+    /// Hidden packages are never proposed.
     var freeUpSpaceBundle: FreeUpSpaceBundle {
-        inventoryDerivedCache.freeUpSpaceBundle(for: packages)
+        inventoryDerivedCache.freeUpSpaceBundle(
+            for: packages,
+            excludingPackageIDs: hiddenPackageIDs
+        )
+    }
+
+    /// AI-attributed packages whose install date falls in the last seven days.
+    func aiInstalledThisWeekCount(now: Date = Date()) -> Int {
+        let cutoff = now.addingTimeInterval(-7 * 86_400)
+        return aiInstalledPackages.filter { package in
+            guard let installedAt = package.installedAt else { return false }
+            return installedAt >= cutoff
+        }.count
+    }
+
+    /// PATH components at app-launch time, earliest-searched first.
+    ///
+    /// A sandboxed GUI app may have a different PATH than the user's terminal;
+    /// views that show PATH standings say so.
+    static var launchPathComponents: [String] {
+        (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":", omittingEmptySubsequences: true)
+            .map(String.init)
+    }
+
+    /// Plain values for the Home checkup, built from current inventory state.
+    ///
+    /// The AI-tools and secrets rows come from the AI setup audit; both stay
+    /// nil ("not checked") until it has run with the home folder granted.
+    func checkupInput(
+        pathComponents: [String] = AppCoordinator.launchPathComponents,
+        now: Date = Date()
+    ) -> CheckupInput {
+        let bundle = freeUpSpaceBundle
+        var gaps: [CheckupCoverageGap] = []
+        if !isDemoMode, !provenanceAccessGranted {
+            gaps.append(.homeFolderNotGranted)
+        }
+        return CheckupInput(
+            packageCount: packages.count,
+            duplicateGroupCount: duplicateGroups.count,
+            highSeverityDuplicateCount: duplicateAnalysis(pathComponents: pathComponents).active.count,
+            reviewCandidateCount: orphanedPackages.count,
+            aiInstalledThisWeekCount: aiInstalledThisWeekCount(now: now),
+            agentFindings: aiSetupAudit.map(AISetupPresentation.checkupCounts),
+            exposedSecretCount: aiSetupAudit?.literalSecretCount,
+            reclaimableBytes: bundle.totalReclaimableBytes,
+            safeToRemoveCount: bundle.candidates.count,
+            coverageGaps: gaps
+        )
+    }
+
+    /// The four Home checkup rows.
+    var checkupRows: [CheckupRow] {
+        Checkup.make(from: checkupInput())
     }
 
     /// Discovered project workspaces, oldest-touched first (unlnown dates last).
@@ -470,9 +608,20 @@ final class AppCoordinator {
     }
 
     /// Packages the current sidebar section may include in a generated removal
-    /// script. Search does not change this scope, so an explicit selection can
-    /// remain checked while temporarily filtered from view.
+    /// script under the current removal strategy. Search does not change this
+    /// scope, so an explicit selection can remain checked while temporarily
+    /// filtered from view.
     var cleanupPackagesForCurrentSection: [Package] {
+        let strategy = removalStrategy
+        return cleanupScopePackagesForCurrentSection
+            .filter { $0.isRemovalScriptEligible(strategy: strategy) }
+    }
+
+    /// Visible packages in the current section that have a runnable removal
+    /// command under at least one strategy. Cleanup Mode is offered when this
+    /// is non-empty, so the strategy picker (shown only in Cleanup Mode) stays
+    /// reachable even when the current strategy excludes every row.
+    var cleanupScopePackagesForCurrentSection: [Package] {
         let candidates: [Package]
         switch sidebarSelection {
         case nil, .all:
@@ -489,7 +638,7 @@ final class AppCoordinator {
             candidates = orphanedPackages
         case .skills:
             candidates = packages.filter { $0.manager == .agentSkill }
-        case .dashboard, .readOnly, .diskUsage, .aiInstalled, .projects, .snapshot:
+        case .dashboard, .aiSetup, .readOnly, .diskUsage, .aiInstalled, .projects, .snapshot:
             candidates = []
         }
         return candidates
@@ -498,7 +647,7 @@ final class AppCoordinator {
     }
 
     var canEnterCleanupMode: Bool {
-        !cleanupPackagesForCurrentSection.isEmpty
+        !cleanupScopePackagesForCurrentSection.isEmpty
     }
 
     var selectedCleanupPackages: [Package] {
@@ -510,7 +659,7 @@ final class AppCoordinator {
     func reconcileCleanupSelectionForCurrentSidebar() {
         let eligibleIDs = Set(cleanupPackagesForCurrentSection.map(\.id))
         selectedForCleanup.formIntersection(eligibleIDs)
-        if eligibleIDs.isEmpty, isCleanupMode {
+        if isCleanupMode, cleanupScopePackagesForCurrentSection.isEmpty {
             isCleanupMode = false
         }
     }
@@ -577,7 +726,7 @@ final class AppCoordinator {
         case .skills:
             remainsVisible = matchesSearch
                 && packages.contains { $0.id == selectedPackage.id && $0.manager == .agentSkill }
-        case .dashboard, .projects, .snapshot:
+        case .dashboard, .aiSetup, .projects, .snapshot:
             remainsVisible = false
         }
 
@@ -616,11 +765,18 @@ final class AppCoordinator {
         return "\(pkgs) \(pkgWord) across \(managers) \(mgrWord)."
     }
 
-    var lastScanSummary: String? {
-        guard let date = lastScanCompletedAt else { return nil }
+    var lastScanSummary: String? { lastScanSummary(relativeTo: Date()) }
+
+    /// "Last scanned …" relative to `now`, so a ticking view can re-render it.
+    func lastScanSummary(relativeTo now: Date) -> String? {
+        Self.lastScanSummary(for: lastScanCompletedAt, relativeTo: now)
+    }
+
+    static func lastScanSummary(for date: Date?, relativeTo now: Date) -> String? {
+        guard let date else { return nil }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
-        return "Last scanned \(formatter.localizedString(for: date, relativeTo: Date()))"
+        return "Last scanned \(formatter.localizedString(for: date, relativeTo: now))"
     }
 
     /// Per-manager status entries (managers that ran or were skipped/failed),
@@ -673,6 +829,21 @@ final class AppCoordinator {
 
     /// Sets (or clears, when `note` is empty) the free-form note attached to a
     /// package.
+    /// Saves an unsaved note draft (same path as Save Note) when it differs
+    /// from the stored note. Called when the detail view goes away, because
+    /// `.id(package.id)` resets the draft on selection change. A whitespace-only
+    /// draft counts as "no note", so clearing a note saves but an untouched
+    /// empty draft writes nothing.
+    @discardableResult
+    func saveNoteDraftIfChanged(_ draft: String, for packageID: String) -> Bool {
+        let stored = note(for: packageID) ?? ""
+        let draftIsEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let storedIsEmpty = stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard draft != stored, !(draftIsEmpty && storedIsEmpty) else { return false }
+        setNote(draft, for: packageID)
+        return true
+    }
+
     func setNote(_ note: String, for packageID: String) {
         let existing = packageUserStates[packageID]
         updateUserState(
@@ -887,6 +1058,9 @@ final class AppCoordinator {
         if let last = lastScanCompletedAt, Date().timeIntervalSince(last) < Self.autoScanCooldown {
             return
         }
+        // "Scan on launch" means a real rescan (cooldown-gated above); the
+        // saved inventory from hydration is shown until it finishes.
+        await scan()
         await refreshSnapshots()
     }
 
@@ -908,8 +1082,8 @@ final class AppCoordinator {
     /// chosen snapshot JSON as the comparison baseline.
     func pickBaselineFile() async {
         let panel = NSOpenPanel()
-        panel.title = "Import Baseline"
-        panel.message = "Choose a snapshot JSON captured on another Mac to compare against this inventory."
+        panel.title = "Import Saved Setup"
+        panel.message = "Choose a snapshot JSON saved on another Mac to compare against this inventory."
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -919,7 +1093,7 @@ final class AppCoordinator {
         do {
             try await importBaseline(from: url)
         } catch {
-            actionError = "Couldn\u{2019}t import baseline. \(error.localizedDescription)"
+            actionError = "Couldn\u{2019}t import the saved setup. \(error.localizedDescription)"
         }
     }
 
@@ -932,7 +1106,7 @@ final class AppCoordinator {
             return
         }
         await hydratePersistedState()
-        await scan()
+        await scan(userInitiated: true)
         await refreshSnapshots()
     }
 
@@ -1048,6 +1222,88 @@ final class AppCoordinator {
     func completeOnboarding() {
         onboardingCompleted = true
         UserDefaults.standard.set(true, forKey: DefaultsKey.onboardingCompleted)
+    }
+
+    // MARK: - Rating prompt
+
+    private static var currentAppVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
+    /// Records today as a launch day (used only to gate the rating prompt).
+    func recordLaunchDay(now: Date = Date()) {
+        guard !isDemoMode else { return }
+        let defaults = UserDefaults.standard
+        let days = defaults.stringArray(forKey: DefaultsKey.launchDays) ?? []
+        let updated = ReviewPromptPolicy.recording(
+            day: ReviewPromptPolicy.dayKey(for: now),
+            in: days
+        )
+        if updated != days {
+            defaults.set(updated, forKey: DefaultsKey.launchDays)
+        }
+    }
+
+    /// Asks for a rating after a completed real scan when the policy allows,
+    /// and remembers the version so it happens at most once per release.
+    private func requestReviewIfAppropriate() {
+        let defaults = UserDefaults.standard
+        let version = Self.currentAppVersion
+        let rows = checkupRows
+        let context = ReviewPromptPolicy.Context(
+            isDemoMode: isDemoMode,
+            onboardingCompleted: onboardingCompleted,
+            scanCompleted: lastScanCompletedAt != nil && !packages.isEmpty,
+            distinctLaunchDays: (defaults.stringArray(forKey: DefaultsKey.launchDays) ?? []).count,
+            reclaimableBytes: freeUpSpaceBundle.totalReclaimableBytes,
+            checkupAllGood: rows.allSatisfy { $0.status == .good },
+            noScanProblems: !scanStatuses.values.contains { status in
+                switch status {
+                case .failed, .timedOut: true
+                case .succeeded, .skipped: false
+                }
+            },
+            currentVersion: version,
+            lastPromptedVersion: defaults.string(forKey: DefaultsKey.lastReviewPromptVersion)
+        )
+        guard ReviewPromptPolicy.shouldRequestReview(context) else { return }
+        defaults.set(version, forKey: DefaultsKey.lastReviewPromptVersion)
+        reviewRequestToken &+= 1
+    }
+
+    // MARK: - Agent prompts
+
+    /// Prompt builder for `agent`, rendering home paths as `~`.
+    func promptBuilder(for agent: PromptAgent) -> AgentPromptBuilder {
+        AgentPromptBuilder(agent: agent, homeDirectory: UserHome.directory)
+    }
+
+    /// "Here's my setup" prompt built from the same Markdown the environment
+    /// report export writes.
+    func setupPrompt(for agent: PromptAgent, now: Date = Date()) -> AgentPrompt {
+        let report = EnvironmentReportRenderer().render(
+            packages: packages,
+            duplicateGroups: duplicateGroups,
+            orphans: orphanedPackages,
+            now: now
+        )
+        return promptBuilder(for: agent).setupPrompt(environmentReport: report)
+    }
+
+    /// Copies the setup prompt and shows a short confirmation (menu command).
+    func copySetupPrompt(for agent: PromptAgent) {
+        PromptClipboard.copy(setupPrompt(for: agent).body)
+        showClipboardNotice("Copied your setup for \(agent.displayName ?? "your AI assistant")")
+    }
+
+    func showClipboardNotice(_ message: String) {
+        clipboardNotice = message
+        clipboardNoticeTask?.cancel()
+        clipboardNoticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.clipboardNotice = nil
+        }
     }
 
     /// Re-show the onboarding sheet on next view appearance. Used by Settings.
@@ -1351,7 +1607,7 @@ final class AppCoordinator {
     /// `~/.local/share/fish/fish_history`, `~/.claude/projects/`,
     /// `~/.codex/sessions/`, and `~/.local/share/opencode/opencode.db`.
     func requestProvenanceAccess() async {
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
+        let homeDir = UserHome.directory
         _ = await folderAccess.requestAccess(to: homeDir)
     }
 
@@ -1361,7 +1617,7 @@ final class AppCoordinator {
     /// Safe to call outside of an active scan (the Revoke button is shown only
     /// when the toggle is ON and the toggle is disabled while scanning).
     func revokeProvenanceAccess() {
-        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+        let homePath = UserHome.directory.path
         guard let storedPath = folderAccess.grantedPath(covering: homePath) else { return }
         folderAccess.remove(path: storedPath)
     }
@@ -1444,7 +1700,10 @@ final class AppCoordinator {
 
     // MARK: - Scan
 
-    func scan() async {
+    /// - Parameter userInitiated: true for scans the user started (⌘R, Check
+    ///   Again, a new folder grant). Only those may ask for a rating; the
+    ///   automatic launch scan never does.
+    func scan(userInitiated: Bool = false) async {
         guard !isDemoMode else { return }
         guard !isScanning else { return }
         isScanning = true
@@ -1465,7 +1724,7 @@ final class AppCoordinator {
         }
 
         let managerEnvironment = PackageManagerEnvironment.current
-        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        let homeDirectory = UserHome.directory
         let pythonDiscovery = PythonInterpreterDiscovery(
             homeDirectory: homeDirectory,
             environment: managerEnvironment,
@@ -1610,6 +1869,15 @@ final class AppCoordinator {
             }
         }
 
+        // MARK: AI setup audit (home folder grant required)
+        guard !Task.isCancelled else { return }
+        await runAgentConfigAudit(grantedURLs: accessedURLs)
+        // After the audit, so the checkup that gates the review request
+        // reflects this scan's AI setup findings rather than the previous one.
+        if userInitiated {
+            requestReviewIfAppropriate()
+        }
+
         // MARK: Provenance collection (gated by user opt-in)
         //
         // This block must remain at the very end of scan(), after packageDAO.replaceAll,
@@ -1621,7 +1889,7 @@ final class AppCoordinator {
 
         // Require a security-scoped bookmark covering the home directory.
         // The user grants this via "Grant read access…" in Settings → Privacy.
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
+        let homeDir = UserHome.directory
         guard
             let homePath = folderAccess.grantedPath(covering: homeDir.path),
             let homeBookmarkPair = folderAccess.grantedBookmarks().first(where: { $0.path == homePath })
@@ -1667,6 +1935,46 @@ final class AppCoordinator {
         }
     }
 
+    /// Reads AI tool settings (MCP servers, instruction files, permissions)
+    /// off the main actor. Requires a grant covering the home folder; access to
+    /// that bookmark is started for the duration, as provenance does.
+    private func runAgentConfigAudit(grantedURLs: [URL]) async {
+        let homeDirectory = UserHome.directory
+        guard
+            let homePath = folderAccess.grantedPath(covering: homeDirectory.path),
+            let homeBookmarkPair = folderAccess.grantedBookmarks().first(where: { $0.path == homePath }),
+            let homeURL = folderAccess.startAccessing(homeBookmarkPair.bookmark)
+        else {
+            agentConfigAudit = nil
+            agentConfigAuditedAt = nil
+            return
+        }
+        defer { folderAccess.stopAccessing(homeURL) }
+
+        let projectRoots = AISetupPresentation.projectRoots(
+            workspaces: projectWorkspaces.map(\.path),
+            grantedFolders: grantedURLs,
+            homeDirectory: homeDirectory
+        )
+        let visibleRoots = grantedURLs + [homeURL]
+        let audit = await Task.detached(priority: .utility) {
+            // Default binary search directories; findings about programs in
+            // folders the sandbox can't see are softened afterwards.
+            let raw = AgentConfigAuditor(
+                homeDirectory: homeDirectory,
+                projectRoots: projectRoots
+            ).audit()
+            return AISetupSandboxAdjustment.adjust(
+                raw,
+                visibleRoots: visibleRoots,
+                homeDirectory: homeDirectory
+            )
+        }.value
+        guard !Task.isCancelled else { return }
+        agentConfigAudit = audit
+        agentConfigAuditedAt = Date()
+    }
+
     private func partitionStatus(
         _ status: ScannerStatus,
         for manager: PackageManager,
@@ -1681,7 +1989,7 @@ final class AppCoordinator {
 
     private func scanner(for manager: PackageManager, grantedURLs: [URL]) -> (any PackageScanner)? {
         let environment = PackageManagerEnvironment.current
-        let homeDirectory = FileManager.default.homeDirectoryForCurrentUser
+        let homeDirectory = UserHome.directory
         switch manager {
         case .brew, .brewCask: return BrewScanner()
         case .pip:
@@ -1722,7 +2030,7 @@ final class AppCoordinator {
     }
 
     private func grantedApplicationsDirectories(_ grantedRoots: [URL]) -> [URL] {
-        let homeApplications = FileManager.default.homeDirectoryForCurrentUser
+        let homeApplications = UserHome.directory
             .appendingPathComponent("Applications", isDirectory: true)
         let candidates = [
             URL(fileURLWithPath: "/Applications", isDirectory: true),

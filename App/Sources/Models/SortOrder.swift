@@ -155,7 +155,12 @@ final class InventoryDerivedCache {
     private var cachedAgentStackAnalysis: (generation: Int, value: AgentStackAnalysis)?
     private var cachedReverseDependencyIndex: (generation: Int, value: ReverseDependencyIndex)?
     private var cachedRemovalSafety: (generation: Int, value: [String: RemovalSafetyVerdict])?
-    private var cachedFreeUpSpace: (generation: Int, limit: Int, value: FreeUpSpaceBundle)?
+    private var cachedFreeUpSpace: (
+        generation: Int,
+        limit: Int,
+        excludedIDs: Set<String>,
+        value: FreeUpSpaceBundle
+    )?
 
     private(set) var computationCounts = InventoryDerivedComputationCounts()
 
@@ -287,10 +292,18 @@ final class InventoryDerivedCache {
         return value
     }
 
-    func freeUpSpaceBundle(for packages: [Package], limit: Int = 5) -> FreeUpSpaceBundle {
+    /// Safe-to-remove bundle over the visible inventory. Hidden rows are passed
+    /// as `excludingPackageIDs` and are part of the cache key, so hiding or
+    /// unhiding a package recomputes the bundle without a new inventory generation.
+    func freeUpSpaceBundle(
+        for packages: [Package],
+        excludingPackageIDs excludedIDs: Set<String> = [],
+        limit: Int = 5
+    ) -> FreeUpSpaceBundle {
         if let cachedFreeUpSpace,
            cachedFreeUpSpace.generation == inventoryGeneration,
-           cachedFreeUpSpace.limit == limit {
+           cachedFreeUpSpace.limit == limit,
+           cachedFreeUpSpace.excludedIDs == excludedIDs {
             return cachedFreeUpSpace.value
         }
         computationCounts.freeUpSpaceBundle += 1
@@ -299,9 +312,11 @@ final class InventoryDerivedCache {
             packages: packages,
             now: Date(),
             reverseDependencyIndex: reverseIndex,
+            orphanedIDs: Set(orphanedPackages(for: packages).map(\.id)),
+            excludingPackageIDs: excludedIDs,
             limit: limit
         )
-        cachedFreeUpSpace = (inventoryGeneration, limit, value)
+        cachedFreeUpSpace = (inventoryGeneration, limit, excludedIDs, value)
         return value
     }
 

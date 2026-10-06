@@ -84,7 +84,7 @@ private struct ScanningTab: View {
         Form {
             Section {
                 Toggle("Scan on launch", isOn: $coordinator.scanOnLaunch)
-                Text("When off, Installory shows the last scan result on launch. Use ⌘R to scan manually.")
+                Text("When on, Installory rescans your granted folders at launch (at most once a minute) and shows the last result meanwhile. When off, it shows the last scan result; use ⌘R to scan manually.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
@@ -112,7 +112,16 @@ private struct ScanningTab: View {
                 }
                 .disabled(coordinator.packages.isEmpty)
 
-                Text("Saves a copy of the current inventory to a file you choose. The environment report includes duplicates, review candidates, and a full package table. Exports never leave your Mac.")
+                AskAgentButton(
+                    title: "Copy My Setup for My AI Assistant",
+                    systemImage: "doc.on.clipboard",
+                    help: "Copy a summary of your installed tools to paste into your AI assistant. Installory never sends it anywhere."
+                ) { agent in
+                    coordinator.setupPrompt(for: agent)
+                }
+                .disabled(coordinator.packages.isEmpty)
+
+                Text("Saves a copy of the current inventory to a file you choose. The environment report includes duplicates, possibly unused packages, and a full package table. Exports never leave your Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
@@ -135,7 +144,7 @@ private struct PrivacyTab: View {
         @Bindable var coordinator = coordinator
         Form {
             Section {
-                Label("Installory makes no network connections.", systemImage: "network.slash")
+                Label("Installory has no internet code of its own.", systemImage: "network.slash")
                 Label("All data stays on your Mac.", systemImage: "lock.shield")
                 Label("Installory reads, never writes, your package directories.", systemImage: "eye")
                 Label("Cleanup scripts are generated, never executed.", systemImage: "terminal")
@@ -143,7 +152,7 @@ private struct PrivacyTab: View {
                 Text("How Installory handles your data")
             }
 
-            // MARK: Provenance section
+            // MARK: Install history section
 
             Section {
                 Toggle("Trace how packages were installed", isOn: $coordinator.provenanceCollection)
@@ -171,7 +180,7 @@ private struct PrivacyTab: View {
 
                 if coordinator.provenanceCollection {
                     if coordinator.provenanceAccessGranted {
-                        let homePath = FileManager.default.homeDirectoryForCurrentUser.path
+                        let homePath = UserHome.directory.path
                         let grantedPath = coordinator.folderAccess.grantedPath(forPrefix: homePath) ?? homePath
                         Label("Access granted to \(grantedPath)", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
@@ -181,6 +190,14 @@ private struct PrivacyTab: View {
                         }
                         .disabled(coordinator.isScanning)
                     } else {
+                        // On but not running: say so plainly instead of
+                        // looking active (common right after upgrading to 1.6).
+                        Label(
+                            "Paused: Installory needs read access to your home folder (\(UserHome.directory.path)) to trace installs.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .foregroundStyle(.orange)
+                        .font(.callout)
                         Button("Grant read access\u{2026}") {
                             Task { await coordinator.requestProvenanceAccess() }
                         }
@@ -191,7 +208,7 @@ private struct PrivacyTab: View {
                     }
                 }
             } header: {
-                Text("Provenance")
+                Text("Install History")
             }
 
             Section {

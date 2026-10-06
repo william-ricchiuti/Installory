@@ -16,7 +16,7 @@ public struct OpenCodeLogCollector: Sendable {
     private let detector: InstallCommandDetector
 
     public init(
-        databasePath: URL = FileManager.default.homeDirectoryForCurrentUser
+        databasePath: URL = UserHome.directory
             .appendingPathComponent(".local/share/opencode/opencode.db"),
         detector: InstallCommandDetector = InstallCommandDetector()
     ) {

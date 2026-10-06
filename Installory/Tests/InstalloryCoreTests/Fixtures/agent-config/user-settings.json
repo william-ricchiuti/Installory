@@ -1,0 +1,5 @@
+{
+  "permissions": { "allow": ["Read(~/notes/**)"], "defaultMode": "acceptEdits" },
+  "skipDangerousModePermissionPrompt": true,
+  "env": { "DISABLE_TELEMETRY": "1" }
+}

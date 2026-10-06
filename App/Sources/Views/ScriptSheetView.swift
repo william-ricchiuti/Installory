@@ -32,6 +32,7 @@ struct ScriptSheetView<Warning: View>: View {
                 .fontWeight(.bold)
             warningContent()
             scriptSection
+            howToRunDisclosure
             safetyReminder
             buttonRow
         }
@@ -63,6 +64,31 @@ struct ScriptSheetView<Warning: View>: View {
         .background(Color.secondary.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .frame(minHeight: 200)
+    }
+
+    /// Short, beginner-friendly steps. Saving and running with `bash` avoids
+    /// zsh history expansion ("event not found") that pasting can trigger.
+    private var howToRunDisclosure: some View {
+        DisclosureGroup {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("1. Click **Save as .sh\u{2026}** and save the script, for example to your Downloads folder.")
+                Text("2. Open Terminal and run it with bash, for example:")
+                Text(verbatim: "bash ~/Downloads/\(filename)")
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+                Text("Pasting a long script straight into Terminal can fail with \u{201C}event not found\u{201D}, so saving it and running it with bash is more reliable.")
+                    .foregroundStyle(.secondary)
+            }
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 4)
+        } label: {
+            Label("How to run this", systemImage: "questionmark.circle")
+                .font(.callout)
+        }
     }
 
     private var safetyReminder: some View {

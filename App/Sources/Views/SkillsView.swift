@@ -36,6 +36,7 @@ struct SkillsView: View {
             placement: .toolbar,
             prompt: "Search skills"
         )
+        .findCommandFocusable()
         .safeAreaInset(edge: .bottom, spacing: 0) {
             CleanupSelectionFooter()
         }
@@ -138,7 +139,7 @@ struct SkillsView: View {
     private func sectionTitle(for root: String) -> String {
         let label = toolLabel(for: root)
         let displayPath = root.replacingOccurrences(
-            of: FileManager.default.homeDirectoryForCurrentUser.path,
+            of: UserHome.directory.path,
             with: "~"
         )
         return "\(label) — \(displayPath)"
@@ -186,6 +187,7 @@ private struct SkillRow: View {
                     Text(package.name)
                         .fontWeight(.semibold)
                         .lineLimit(1)
+                        .layoutPriority(1)
                     ManagerBadge(manager: package.manager)
                     if isDuplicate {
                         Image(systemName: "arrow.triangle.branch")
