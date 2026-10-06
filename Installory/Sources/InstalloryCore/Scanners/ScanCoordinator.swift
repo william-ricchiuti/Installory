@@ -75,6 +75,12 @@ public actor ScanCoordinator {
                                 packages = []
                             } catch is CancellationError {
                                 return nil
+                            } catch where ScanCoordinator.isPermissionDenied(error) {
+                                // The sandbox can see that a folder exists but not read it
+                                // until the user grants access. That is "not granted yet",
+                                // not a broken scan.
+                                status = .skipped(reason: ScanCoordinator.accessNeededReason)
+                                packages = []
                             } catch {
                                 let ms = Int(Date().timeIntervalSince(start) * 1000)
                                 status = .failed(reason: error.localizedDescription, durationMs: ms)
@@ -104,6 +110,26 @@ public actor ScanCoordinator {
                 producer.cancel()
             }
         }
+    }
+}
+
+extension ScanCoordinator {
+    static let accessNeededReason = "Installory needs read access to this tool's folder"
+
+    /// True when `error`, or any error it wraps, is a file-permission refusal.
+    nonisolated static func isPermissionDenied(_ error: any Error) -> Bool {
+        let nsError = error as NSError
+        if nsError.domain == NSCocoaErrorDomain, nsError.code == NSFileReadNoPermissionError {
+            return true
+        }
+        if nsError.domain == NSPOSIXErrorDomain,
+           nsError.code == Int(EPERM) || nsError.code == Int(EACCES) {
+            return true
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? any Error {
+            return isPermissionDenied(underlying)
+        }
+        return false
     }
 }
 
