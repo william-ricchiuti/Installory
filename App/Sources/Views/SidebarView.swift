@@ -29,11 +29,26 @@ struct SidebarView: View {
             NavigationLink(value: SidebarSelection.dashboard) {
                 Label("Home", systemImage: "house")
             }
+            NavigationLink(value: SidebarSelection.aiSetup) {
+                Label("AI Setup", systemImage: "cpu")
+            }
+            .badge(coordinator.aiSetupAttentionCount)
+            .accessibilityValue(aiSetupBadgeAccessibilityValue)
+            .help("Your MCP servers, AI instruction files and agent permissions (\u{2318}3)")
             if !coordinator.projectWorkspaces.isEmpty {
                 NavigationLink(value: SidebarSelection.projects) {
                     Label("Projects (\(coordinator.projectWorkspaces.count))", systemImage: "folder")
                 }
             }
+        }
+    }
+
+    private var aiSetupBadgeAccessibilityValue: String {
+        let count = coordinator.aiSetupAttentionCount
+        switch count {
+        case 0: return ""
+        case 1: return "1 thing to look at"
+        default: return "\(count) things to look at"
         }
     }
 

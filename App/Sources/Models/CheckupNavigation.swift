@@ -9,8 +9,7 @@ enum CheckupAction: Equatable {
 }
 
 extension CheckupRow {
-    /// The action behind `actionTitle`, or nil when the row has no button (or
-    /// the destination doesn't exist yet, such as the coming secrets check).
+    /// The action behind `actionTitle`, or nil when the row has no button.
     var action: CheckupAction? {
         guard let actionTitle else { return nil }
         switch actionTitle {
@@ -23,11 +22,11 @@ extension CheckupRow {
         case .installedTools:
             return actionTitle == "See review list" ? .navigate(.orphans) : .navigate(.duplicates)
         case .aiTools:
-            return actionTitle == "See this week's installs" ? .navigate(.aiInstalled) : .navigate(.skills)
+            return actionTitle == "See this week's installs" ? .navigate(.aiInstalled) : .navigate(.aiSetup)
         case .space:
             return .navigate(.diskUsage)
         case .secrets:
-            return nil
+            return .navigate(.aiSetup)
         }
     }
 

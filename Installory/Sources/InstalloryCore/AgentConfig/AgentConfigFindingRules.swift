@@ -656,7 +656,7 @@ struct AgentConfigFindingRules {
         return explanations[program]
     }
 
-    private static func eventDescription(_ event: String) -> String {
+    static func eventDescription(_ event: String) -> String {
         switch event {
         case "PreToolUse": "Before the agent uses a tool"
         case "PostToolUse": "After the agent uses a tool"

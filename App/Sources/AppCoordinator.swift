@@ -245,6 +245,13 @@ final class AppCoordinator {
     /// directories. In-memory only — recomputed on each scan, never persisted.
     private(set) var projectWorkspaces: [ProjectWorkspace] = []
 
+    /// The latest AI setup audit (MCP servers, instruction files, agent
+    /// permissions). In-memory only; recomputed on each scan when the home
+    /// folder is granted. Values in it were masked at parse time.
+    private(set) var agentConfigAudit: AgentConfigAudit?
+    /// When `agentConfigAudit` was produced.
+    private(set) var agentConfigAuditedAt: Date?
+
     /// Minimum interval between automatic scans triggered by `autoScanIfNeeded`.
     /// Manual `refresh()` ignores this — the user pressing ⌘R always rescans.
     private static let autoScanCooldown: TimeInterval = 60
@@ -257,6 +264,24 @@ final class AppCoordinator {
     var provenanceAccessGranted: Bool {
         let homePath = UserHome.directory.path
         return folderAccess.grantedPath(covering: homePath) != nil
+    }
+
+    // MARK: - Computed: AI setup
+
+    /// True when the AI setup audit can see the user's settings (home folder
+    /// granted), or in demo mode.
+    var aiSetupAccessGranted: Bool {
+        isDemoMode || provenanceAccessGranted
+    }
+
+    /// The audit to show, or nil when access was revoked or nothing has run.
+    var aiSetupAudit: AgentConfigAudit? {
+        aiSetupAccessGranted ? agentConfigAudit : nil
+    }
+
+    /// Warning and critical findings, for the sidebar badge.
+    var aiSetupAttentionCount: Int {
+        aiSetupAudit.map(AISetupPresentation.attentionCount) ?? 0
     }
 
     // MARK: - Init
@@ -346,6 +371,8 @@ final class AppCoordinator {
         scanStatuses = [:]
         lastScanCompletedAt = Date()
         provenanceByPackageId = DemoData.demoProvenanceByPackageId()
+        agentConfigAudit = DemoData.agentConfigAudit()
+        agentConfigAuditedAt = Date()
         // Dismiss onboarding for the demo session without persisting the flag —
         // a developer who runs `-demo` once shouldn't permanently skip onboarding.
         onboardingCompleted = true
@@ -367,6 +394,8 @@ final class AppCoordinator {
         searchQuery = ""
         sidebarSelection = .all
         provenanceByPackageId = [:]
+        agentConfigAudit = nil
+        agentConfigAuditedAt = nil
         onboardingCompleted = UserDefaults.standard.bool(forKey: DefaultsKey.onboardingCompleted)
         hasHydratedPersistedState = false
         Task {
@@ -413,7 +442,7 @@ final class AppCoordinator {
         switch sidebarSelection {
         case nil, .all, .manager, .readOnly:
             true
-        case .dashboard, .duplicates, .orphans, .diskUsage, .aiInstalled, .skills, .projects, .snapshot:
+        case .dashboard, .aiSetup, .duplicates, .orphans, .diskUsage, .aiInstalled, .skills, .projects, .snapshot:
             false
         }
     }
@@ -520,8 +549,8 @@ final class AppCoordinator {
 
     /// Plain values for the Home checkup, built from current inventory state.
     ///
-    /// The AI-setup and secrets checks don't exist yet, so their inputs stay
-    /// nil ("not checked").
+    /// The AI-tools and secrets rows come from the AI setup audit; both stay
+    /// nil ("not checked") until it has run with the home folder granted.
     func checkupInput(
         pathComponents: [String] = AppCoordinator.launchPathComponents,
         now: Date = Date()
@@ -537,8 +566,8 @@ final class AppCoordinator {
             highSeverityDuplicateCount: duplicateAnalysis(pathComponents: pathComponents).active.count,
             reviewCandidateCount: orphanedPackages.count,
             aiInstalledThisWeekCount: aiInstalledThisWeekCount(now: now),
-            agentFindings: nil,
-            exposedSecretCount: nil,
+            agentFindings: aiSetupAudit.map(AISetupPresentation.checkupCounts),
+            exposedSecretCount: aiSetupAudit?.literalSecretCount,
             reclaimableBytes: bundle.totalReclaimableBytes,
             safeToRemoveCount: bundle.candidates.count,
             coverageGaps: gaps
@@ -601,7 +630,7 @@ final class AppCoordinator {
             candidates = orphanedPackages
         case .skills:
             candidates = packages.filter { $0.manager == .agentSkill }
-        case .dashboard, .readOnly, .diskUsage, .aiInstalled, .projects, .snapshot:
+        case .dashboard, .aiSetup, .readOnly, .diskUsage, .aiInstalled, .projects, .snapshot:
             candidates = []
         }
         return candidates
@@ -689,7 +718,7 @@ final class AppCoordinator {
         case .skills:
             remainsVisible = matchesSearch
                 && packages.contains { $0.id == selectedPackage.id && $0.manager == .agentSkill }
-        case .dashboard, .projects, .snapshot:
+        case .dashboard, .aiSetup, .projects, .snapshot:
             remainsVisible = false
         }
 
@@ -1802,6 +1831,10 @@ final class AppCoordinator {
             }
         }
 
+        // MARK: AI setup audit (home folder grant required)
+        guard !Task.isCancelled else { return }
+        await runAgentConfigAudit(grantedURLs: accessedURLs)
+
         // MARK: Provenance collection (gated by user opt-in)
         //
         // This block must remain at the very end of scan(), after packageDAO.replaceAll,
@@ -1857,6 +1890,46 @@ final class AppCoordinator {
                 storageWarning = "Couldn't save the latest install history to the local cache, so it won't be remembered next launch."
             }
         }
+    }
+
+    /// Reads AI tool settings (MCP servers, instruction files, permissions)
+    /// off the main actor. Requires a grant covering the home folder; access to
+    /// that bookmark is started for the duration, as provenance does.
+    private func runAgentConfigAudit(grantedURLs: [URL]) async {
+        let homeDirectory = UserHome.directory
+        guard
+            let homePath = folderAccess.grantedPath(covering: homeDirectory.path),
+            let homeBookmarkPair = folderAccess.grantedBookmarks().first(where: { $0.path == homePath }),
+            let homeURL = folderAccess.startAccessing(homeBookmarkPair.bookmark)
+        else {
+            agentConfigAudit = nil
+            agentConfigAuditedAt = nil
+            return
+        }
+        defer { folderAccess.stopAccessing(homeURL) }
+
+        let projectRoots = AISetupPresentation.projectRoots(
+            workspaces: projectWorkspaces.map(\.path),
+            grantedFolders: grantedURLs,
+            homeDirectory: homeDirectory
+        )
+        let visibleRoots = grantedURLs + [homeURL]
+        let audit = await Task.detached(priority: .utility) {
+            // Default binary search directories; findings about programs in
+            // folders the sandbox can't see are softened afterwards.
+            let raw = AgentConfigAuditor(
+                homeDirectory: homeDirectory,
+                projectRoots: projectRoots
+            ).audit()
+            return AISetupSandboxAdjustment.adjust(
+                raw,
+                visibleRoots: visibleRoots,
+                homeDirectory: homeDirectory
+            )
+        }.value
+        guard !Task.isCancelled else { return }
+        agentConfigAudit = audit
+        agentConfigAuditedAt = Date()
     }
 
     private func partitionStatus(

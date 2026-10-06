@@ -76,7 +76,9 @@ public struct CheckupInput: Sendable, Equatable {
     public var aiInstalledThisWeekCount: Int
     /// nil = agent / MCP config not scanned.
     public var agentFindings: CheckupFindingCounts?
-    /// nil = secrets not checked yet.
+    /// Secrets written in plain text in AI tool settings (MCP env, headers,
+    /// arguments, agent settings `env`). nil = not checked. Project `.env`
+    /// files are not part of this count.
     public var exposedSecretCount: Int?
     public var reclaimableBytes: Int64
     public var safeToRemoveCount: Int
@@ -217,16 +219,15 @@ public enum Checkup {
                     actionTitle: "Open Settings"
                 )
             }
-            // Nothing is blocking the check; it simply hasn't produced results
-            // (today: the AI setup check isn't available yet). Don't tell the
-            // user to scan again, which wouldn't change anything.
+            // Nothing is blocking the check; it simply hasn't run yet (the AI
+            // setup check runs as part of a scan once the home folder is granted).
             let aiWeek = input.aiInstalledThisWeekCount
             if aiWeek > 0 {
                 return CheckupRow(
                     area: .aiTools,
                     status: .unknown,
                     headline: "\(count(aiWeek, "tool")) added by AI this week",
-                    detail: "Installory doesn't check AI agent settings yet, but you can glance at what your agents installed this week.",
+                    detail: "Your AI agent settings haven't been checked yet, but you can glance at what your agents installed this week.",
                     actionTitle: "See this week's installs"
                 )
             }
@@ -234,8 +235,8 @@ public enum Checkup {
                 area: .aiTools,
                 status: .unknown,
                 headline: "Not checked yet",
-                detail: "Installory doesn't check AI agent settings or MCP servers yet; that check is coming in a future update.",
-                actionTitle: nil
+                detail: "Run a scan to check your AI agent settings and MCP servers.",
+                actionTitle: "Scan now"
             )
         }
 
@@ -285,13 +286,13 @@ public enum Checkup {
                 detail = "Turn on the secrets check in Settings to look for API keys saved in plain text."
                 action = "Open Settings"
             } else {
-                // Not blocked, just not run (today: the check isn't available yet).
+                // Not blocked, just not run yet: the check runs with a scan.
                 return CheckupRow(
                     area: .secrets,
                     status: .unknown,
                     headline: "Not checked yet",
-                    detail: "Installory doesn't look for API keys saved in plain text yet; that check is coming in a future update.",
-                    actionTitle: nil
+                    detail: "Run a scan to look for API keys written in plain text in your AI tools' settings.",
+                    actionTitle: "Scan now"
                 )
             }
             return CheckupRow(area: .secrets, status: .unknown, headline: "Not checked yet", detail: detail, actionTitle: action)
@@ -301,8 +302,8 @@ public enum Checkup {
             return CheckupRow(
                 area: .secrets,
                 status: .attention,
-                headline: count(exposed, "exposed key"),
-                detail: "Some API keys are saved in plain text where other programs could read them; replace them with new keys and store them somewhere safer.",
+                headline: count(exposed, "key") + " in AI tool settings",
+                detail: "Some API keys are written in plain text in your AI tools' settings, where other programs could read them; replace them with new keys and store them somewhere safer.",
                 actionTitle: "Review keys"
             )
         }
@@ -310,8 +311,8 @@ public enum Checkup {
         return CheckupRow(
             area: .secrets,
             status: .good,
-            headline: "No exposed keys found",
-            detail: "Installory didn't find any API keys saved in plain text in the places it checked.",
+            headline: "No keys in AI tool settings",
+            detail: "None of your AI tools' settings files have an API key written in plain text. (Installory doesn't check project .env files.)",
             actionTitle: nil
         )
     }

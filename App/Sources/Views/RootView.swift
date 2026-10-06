@@ -53,7 +53,7 @@ extension SidebarSelection {
         switch self {
         case .all, .manager, .duplicates, .orphans, .skills:
             return true
-        case .dashboard, .readOnly, .diskUsage, .aiInstalled, .projects, .snapshot:
+        case .dashboard, .aiSetup, .readOnly, .diskUsage, .aiInstalled, .projects, .snapshot:
             return false
         }
     }
@@ -118,7 +118,7 @@ extension SidebarSelection {
     /// render full width instead of leaving an empty "No Package Selected" pane.
     var destinationLayout: DestinationLayout {
         switch self {
-        case .dashboard, .projects, .snapshot:
+        case .dashboard, .aiSetup, .projects, .snapshot:
             return .fullWidth
         case .all, .manager, .readOnly, .duplicates, .orphans, .diskUsage, .aiInstalled, .skills:
             return .listWithDetail
@@ -312,6 +312,8 @@ struct RootView: View {
             SnapshotContentView(snapshotID: id)
         case .projects:
             ProjectsView()
+        case .aiSetup:
+            AISetupView()
         default:
             DashboardView()
         }

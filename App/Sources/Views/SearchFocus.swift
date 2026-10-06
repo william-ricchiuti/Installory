@@ -8,7 +8,7 @@ extension SidebarSelection {
         switch self {
         case .all, .manager, .readOnly, .duplicates, .orphans, .aiInstalled, .skills, .snapshot:
             return true
-        case .dashboard, .diskUsage, .projects:
+        case .dashboard, .aiSetup, .diskUsage, .projects:
             return false
         }
     }

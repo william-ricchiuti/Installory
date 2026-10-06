@@ -37,6 +37,13 @@ struct InstalloryApp: App {
                     !coordinator.supportsInventoryViewMode
                         || coordinator.inventoryViewMode == .table
                 )
+
+                Divider()
+
+                Button("AI Setup") {
+                    coordinator.sidebarSelection = .aiSetup
+                }
+                .keyboardShortcut("3", modifiers: .command)
             }
 
             CommandMenu("Inventory") {

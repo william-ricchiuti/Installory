@@ -632,6 +632,9 @@ struct AppCoordinatorPersistenceTests {
     func destinationLayouts() {
         #expect(SidebarSelection.dashboard.destinationLayout == .fullWidth)
         #expect(SidebarSelection.projects.destinationLayout == .fullWidth)
+        #expect(SidebarSelection.aiSetup.destinationLayout == .fullWidth)
+        #expect(!SidebarSelection.aiSetup.supportsCleanupControls)
+        #expect(!SidebarSelection.aiSetup.hasSearchField)
         #expect(SidebarSelection.snapshot(UUID()).destinationLayout == .fullWidth)
         #expect(SidebarSelection.all.destinationLayout == .listWithDetail)
         #expect(SidebarSelection.manager(.npm).destinationLayout == .listWithDetail)

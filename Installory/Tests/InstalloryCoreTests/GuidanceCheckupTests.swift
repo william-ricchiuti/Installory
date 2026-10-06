@@ -92,12 +92,12 @@ struct GuidanceCheckupTests {
         #expect(disabled.detail.contains("Turn on the AI tools check"))
         #expect(disabled.actionTitle == "Open Settings")
 
-        // Not blocked but not run: no "scan again" advice, which wouldn't help.
+        // Not blocked but not run yet: the check runs with the next scan.
         let plain = row(.aiTools, CheckupInput(packageCount: 5))
         #expect(plain.status == .unknown)
         #expect(plain.headline == "Not checked yet")
-        #expect(plain.detail.contains("coming in a future update"))
-        #expect(plain.actionTitle == nil)
+        #expect(plain.detail.contains("Run a scan"))
+        #expect(plain.actionTitle == "Scan now")
 
         let week = row(.aiTools, CheckupInput(packageCount: 5, aiInstalledThisWeekCount: 2))
         #expect(week.status == .unknown)
@@ -153,23 +153,24 @@ struct GuidanceCheckupTests {
 
         let plain = row(.secrets, CheckupInput(packageCount: 5, coverageGaps: [.other("Downloads")]))
         #expect(plain.status == .unknown)
-        #expect(plain.detail.contains("coming in a future update"))
-        #expect(plain.actionTitle == nil)
+        #expect(plain.detail.contains("Run a scan"))
+        #expect(plain.actionTitle == "Scan now")
     }
 
     @Test("Secrets: exposed keys need attention; zero is good")
     func secretsKnown() {
         let exposed = row(.secrets, CheckupInput(packageCount: 5, exposedSecretCount: 2))
         #expect(exposed.status == .attention)
-        #expect(exposed.headline == "2 exposed keys")
+        #expect(exposed.headline == "2 keys in AI tool settings")
         #expect(exposed.actionTitle == "Review keys")
 
         let one = row(.secrets, CheckupInput(packageCount: 5, exposedSecretCount: 1))
-        #expect(one.headline == "1 exposed key")
+        #expect(one.headline == "1 key in AI tool settings")
 
         let none = row(.secrets, CheckupInput(packageCount: 5, exposedSecretCount: 0))
         #expect(none.status == .good)
-        #expect(none.headline == "No exposed keys found")
+        #expect(none.headline == "No keys in AI tool settings")
+        #expect(none.detail.contains(".env"))
         #expect(none.actionTitle == nil)
     }
 
