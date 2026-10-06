@@ -10,12 +10,12 @@ archive from the merged, clean `main` branch.
 
 ### What's New (draft for App Store Connect)
 
-Paste the text between the rules. 1,928 characters; the App Store limit
+Paste the text between the rules. 1,960 characters; the App Store limit
 is 4,000.
 
 ---
 
-Installory is now a read-only checkup for a Mac you code on with AI.
+Know what's on your Mac, and what your AI put there. Installory 1.6 adds a read-only checkup of your AI coding setup.
 
 • New Home checkup: four plain rows for installed tools, AI tools, secrets in AI tool settings, and space. Each says whether it looks good, needs a look, or hasn't been checked yet.
 • New AI Setup screen: see the MCP servers set up in Claude Code, Claude Desktop, Cursor, VS Code, Codex and opencode, plus your CLAUDE.md, AGENTS.md and rules files, and your agent permissions and hooks. Each finding explains the problem in plain English and suggests a fix.

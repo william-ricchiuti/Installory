@@ -1,6 +1,6 @@
 # Installory
 
-**The safe, read-only checkup for a Mac you code on with AI.**
+**Know what's on your Mac, and what your AI put there.**
 
 [Mac App Store](https://apps.apple.com/us/app/installory/id6772879429?mt=12) ·
 [installory.app](https://installory.app/) · Free · MIT · macOS 14+

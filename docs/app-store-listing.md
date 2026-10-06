@@ -39,10 +39,10 @@ Chars: 156
 
 ## Description (limit 4000)
 
-Chars: 2,404
+Chars: 2,425
 
 ```
-See what's on the Mac you code on with AI, what your AI tools installed and changed, and what's safe to clean up. Installory only reads. It never changes your Mac, never runs commands, and never sends your data anywhere.
+Know what's on your Mac, and what your AI put there. See what your AI coding tools installed and changed, and what's safe to clean up. Installory only reads. It never changes your Mac, never runs commands, and never sends your data anywhere.
 
 A CHECKUP IN PLAIN ENGLISH
 Home shows four rows: installed tools, AI tools, secrets in AI tool settings, and space. Each one says whether it looks good, needs a look, or hasn't been checked yet, and what to do next.
@@ -101,7 +101,7 @@ account). Caption text is overlaid or used as the screenshot's headline.
 
 | # | Screen | Caption | Chars |
 |---|---|---|---|
-| 1 | Home checkup with all four rows, at least one "worth a look" | `A safe checkup for the Mac you code on with AI` | 46 |
+| 1 | Home checkup with all four rows, at least one "worth a look" | `Know what's on your Mac, and what your AI put there` | 51 |
 | 2 | AI Setup: MCP servers list across several apps, a finding expanded | `See every MCP server your AI tools use` | 38 |
 | 3 | AI Setup: a plain-text secret finding with the value masked | `Find API keys left in plain text, safely masked` | 47 |
 | 4 | Package detail with Install History showing an AI-installed tool and the Ask Your AI Assistant menu open | `See what your AI assistant installed` | 36 |
