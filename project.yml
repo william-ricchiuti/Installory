@@ -26,8 +26,8 @@ targets:
         CFBundleInfoDictionaryVersion: "6.0"
         CFBundleName: $(PRODUCT_NAME)
         CFBundlePackageType: APPL
-        CFBundleShortVersionString: "1.5.0"
-        CFBundleVersion: "11"
+        CFBundleShortVersionString: "1.6.0"
+        CFBundleVersion: "12"
         ITSAppUsesNonExemptEncryption: false
         LSApplicationCategoryType: public.app-category.developer-tools
     entitlements:

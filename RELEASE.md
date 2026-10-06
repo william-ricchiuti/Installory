@@ -1,10 +1,9 @@
 # Installory releases
 
-## Next release (unreleased; proposed 1.6.0)
+## 1.6.0 (build 12) — ready to submit
 
-Status: in development on `claude/installory-audit-features-33686e`. Not
-submitted. The version and build number in `project.yml` are still `1.5.0` /
-`11`; bumping them is an owner step (see the checklist).
+Status: merged to `main` (PR #5) and versioned 1.6.0 (12). Not yet submitted to
+App Store Connect. Remaining owner steps are checklist items 4 onward.
 
 Do not upload a local unsigned or ad-hoc QA archive. Create a fresh distribution
 archive from the merged, clean `main` branch.
@@ -67,11 +66,10 @@ the app without granting filesystem access.
 
 ### Release checklist
 
-1. Owner step: choose the version (proposed `1.6.0`) and bump
-   `CFBundleShortVersionString` and `CFBundleVersion` in `project.yml`. The
-   build number must be greater than `11`; build numbers cannot be reused.
-   Confirm bundle identifier `app.installory.mac` and
-   `ITSAppUsesNonExemptEncryption: false`, then regenerate the Xcode project.
+1. Done: version `1.6.0`, build `12` in `project.yml` and `App/Info.plist`
+   (build numbers cannot be reused). Bundle identifier `app.installory.mac` and
+   `ITSAppUsesNonExemptEncryption: false` unchanged. Run
+   `./scripts/regenerate-xcode.sh` after pulling.
 2. Refresh the description corpus from fresh API responses using its
    [runbook](scripts/generate-descriptions/README.md). If it changes, rerun every
    verification gate.
@@ -86,10 +84,7 @@ the app without granting filesystem access.
 5. Upload the five 2880×1800 screenshots in `files/screenshots/app-store/`
    (rendered from sample data; the sample-data banner is visible). Pick the
    subtitle, promotional text and keywords from
-   [docs/app-store-listing.md](docs/app-store-listing.md). Version and build
-   are still 1.5.0 (11) in `project.yml` and `App/Info.plist`: set
-   `CFBundleShortVersionString` to `1.6.0` and `CFBundleVersion` to `12` in
-   both, then regenerate the Xcode project.
+   [docs/app-store-listing.md](docs/app-store-listing.md).
 6. From updated `main`, select the owner Apple Developer Team with managed
    distribution signing. Do not commit a personal team identifier.
 7. Select Any Mac / Generic Mac, choose Product → Archive, and confirm version,

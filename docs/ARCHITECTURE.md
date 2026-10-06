@@ -1,8 +1,7 @@
 # Installory architecture
 
-For engineers and reviewers. Describes the code as of 2026-10-05 on branch
-`claude/installory-audit-features-33686e` (next release, unreleased; proposed
-1.6.0). User-facing features are in [README.md](../README.md).
+For engineers and reviewers. Describes the code as of 1.6.0 (build 12,
+October 2026). User-facing features are in [README.md](../README.md).
 
 ## Design rules
 

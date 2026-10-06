@@ -18,7 +18,7 @@ own.
 
 ## Capabilities
 
-The items marked *new* are in the next release (unreleased; proposed 1.6.0).
+The items marked *new* arrive in 1.6.0.
 
 - **Home checkup** *(new)*: four plain-English rows, each marked good, worth a
   look, or not checked yet, with an at-a-glance grid below:
@@ -194,7 +194,7 @@ are deliberate gaps.
 
 ## Release
 
-Draft notes for the next release (unreleased; proposed 1.6.0), the App Review
+Notes for 1.6.0, the App Review
 note, and the archive checklist are in [RELEASE.md](RELEASE.md). Historical
 audits and implementation plans live in Git history rather than the working tree.
 
