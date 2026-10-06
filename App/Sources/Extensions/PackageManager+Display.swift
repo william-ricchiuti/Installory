@@ -22,16 +22,16 @@ extension PackageManager {
     var badgeLabel: String {
         switch self {
         case .brew: "brew"
-        case .brewCask: "cask"
+        case .brewCask: "app"
         case .pip: "pip"
         case .pipx: "pipx"
         case .uv: "uv"
         case .npm: "npm"
         case .cargo: "cargo"
         case .gem: "gem"
-        case .mas: "mas"
+        case .mas: "App Store"
         case .agentSkill: "skill"
-        case .agentCli: "cli"
+        case .agentCli: "AI tool"
         case .editorExtension: "ext"
         }
     }
@@ -64,4 +64,11 @@ extension PackageManager {
         case .editorExtension: "puzzlepiece.extension"
         }
     }
+}
+
+extension ScannerStatus {
+    /// Plain sentence for a skipped scanner in Scan Coverage. Raw skip reasons
+    /// ("pipx venv directory not granted or not found") are scanner jargon; a
+    /// skip always means the same thing to a person: not here, or not shared.
+    static let friendlySkipDescription = "Not found on this Mac, or Installory doesn\u{2019}t have access to its folder yet"
 }

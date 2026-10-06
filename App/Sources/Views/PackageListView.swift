@@ -250,7 +250,7 @@ struct PackageListView: View {
         ) { pkg in
             PackageRowView(
                 package: pkg,
-                onRemove: pkg.isRemovalScriptEligible ? {
+                onRemove: pkg.isRemovalScriptEligible(strategy: coordinator.removalStrategy) ? {
                     Task { await coordinator.requestRemoval([pkg]) }
                 } : nil
             )

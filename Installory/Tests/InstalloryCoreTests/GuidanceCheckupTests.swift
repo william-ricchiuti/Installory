@@ -92,9 +92,17 @@ struct GuidanceCheckupTests {
         #expect(disabled.detail.contains("Turn on the AI tools check"))
         #expect(disabled.actionTitle == "Open Settings")
 
+        // Not blocked but not run: no "scan again" advice, which wouldn't help.
         let plain = row(.aiTools, CheckupInput(packageCount: 5))
         #expect(plain.status == .unknown)
-        #expect(plain.actionTitle == "Scan now")
+        #expect(plain.headline == "Not checked yet")
+        #expect(plain.detail.contains("coming in a future update"))
+        #expect(plain.actionTitle == nil)
+
+        let week = row(.aiTools, CheckupInput(packageCount: 5, aiInstalledThisWeekCount: 2))
+        #expect(week.status == .unknown)
+        #expect(week.headline == "2 tools added by AI this week")
+        #expect(week.actionTitle == "See this week's installs")
     }
 
     @Test("AI tools: high or medium findings need attention")
@@ -145,7 +153,8 @@ struct GuidanceCheckupTests {
 
         let plain = row(.secrets, CheckupInput(packageCount: 5, coverageGaps: [.other("Downloads")]))
         #expect(plain.status == .unknown)
-        #expect(plain.actionTitle == "Scan now")
+        #expect(plain.detail.contains("coming in a future update"))
+        #expect(plain.actionTitle == nil)
     }
 
     @Test("Secrets: exposed keys need attention; zero is good")

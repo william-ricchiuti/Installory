@@ -102,6 +102,17 @@ struct InstalloryApp: App {
                 Button("Show Data Folder in Finder") {
                     coordinator.revealDataFolder()
                 }
+
+                Divider()
+
+                Menu("Copy My Setup for My AI Assistant") {
+                    ForEach(PromptAgent.allCases, id: \.self) { agent in
+                        Button(PromptClipboard.menuTitle(for: agent)) {
+                            coordinator.copySetupPrompt(for: agent)
+                        }
+                    }
+                }
+                .disabled(coordinator.packages.isEmpty)
             }
         }
 

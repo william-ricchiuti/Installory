@@ -50,7 +50,7 @@ struct SnapshotContentView: View {
                 ContentUnavailableView {
                     Label("Snapshot Couldn't Be Loaded", systemImage: "exclamationmark.triangle")
                 } description: {
-                    Text("The saved snapshot payload could not be read.")
+                    Text("The saved snapshot could not be read.")
                 }
             }
         }

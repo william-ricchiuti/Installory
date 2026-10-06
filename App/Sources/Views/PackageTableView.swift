@@ -92,7 +92,7 @@ struct PackageTableView: View {
                     .contextMenu {
                         PackageContextMenu(
                             package: package,
-                            onRemove: package.isRemovalScriptEligible ? {
+                            onRemove: package.isRemovalScriptEligible(strategy: coordinator.removalStrategy) ? {
                                 Task { await coordinator.requestRemoval([package]) }
                             } : nil
                         )

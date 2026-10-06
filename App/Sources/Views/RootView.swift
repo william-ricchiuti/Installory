@@ -1,4 +1,5 @@
 import InstalloryCore
+import StoreKit
 import SwiftUI
 
 /// Why a dedicated analysis view has no rows to display.
@@ -131,6 +132,8 @@ struct RootView: View {
     /// Shared by both split-view layouts so a collapsed sidebar stays collapsed
     /// when switching between full-width and list destinations.
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @Environment(\.requestReview) private var requestReview
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var layout: DestinationLayout {
         (coordinator.sidebarSelection ?? .all).destinationLayout
@@ -208,23 +211,23 @@ struct RootView: View {
                     .disabled(coordinator.packages.isEmpty || coordinator.isScanning)
 
                     Menu {
-                        Button("Import Baseline\u{2026}", systemImage: "arrow.down.doc") {
+                        Button("Import Saved Setup\u{2026}", systemImage: "arrow.down.doc") {
                             Task { await coordinator.pickBaselineFile() }
                         }
                         .disabled(coordinator.packages.isEmpty)
                         if coordinator.baselinePayload != nil {
-                            Button("Compare with Baseline\u{2026}", systemImage: "arrow.triangle.2.circlepath") {
+                            Button("Compare with Saved Setup\u{2026}", systemImage: "arrow.triangle.2.circlepath") {
                                 showingBaselineCompare = true
                             }
                             Divider()
-                            Button("Clear Baseline", systemImage: "trash", role: .destructive) {
+                            Button("Clear Saved Setup", systemImage: "trash", role: .destructive) {
                                 coordinator.clearBaseline()
                             }
                         }
                     } label: {
-                        Label("Baseline", systemImage: coordinator.baselinePayload != nil ? "checklist" : "doc.badge.arrow.up")
+                        Label("Saved Setup", systemImage: coordinator.baselinePayload != nil ? "checklist" : "doc.badge.arrow.up")
                     }
-                    .help("Compare the inventory against a snapshot captured on another Mac")
+                    .help("Compare this Mac against a setup saved on another Mac")
 
                     Button {
                         Task { await coordinator.refresh() }
@@ -238,9 +241,23 @@ struct RootView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 580)
+        .overlay(alignment: .bottom) {
+            if let notice = coordinator.clipboardNotice {
+                ClipboardNoticeView(message: notice)
+                    .padding(.bottom, 24)
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(reduceMotion ? nil : .smooth, value: coordinator.clipboardNotice)
         .task {
+            coordinator.recordLaunchDay()
             await coordinator.hydratePersistedState()
             await coordinator.autoScanIfNeeded()
+        }
+        // The coordinator decides (ReviewPromptPolicy); the view only asks.
+        .onChange(of: coordinator.reviewRequestToken) { _, _ in
+            guard coordinator.onboardingCompleted, !coordinator.isDemoMode else { return }
+            requestReview()
         }
         // Persisted here rather than in PackageListView, which unmounts whenever the
         // user navigates to one of the dedicated sections above.
@@ -333,6 +350,25 @@ struct RootView: View {
         }
     }
 
+}
+
+/// Transient "Copied …" confirmation for menu commands that copy text.
+private struct ClipboardNoticeView: View {
+    let message: String
+
+    var body: some View {
+        Label(message, systemImage: "checkmark.circle.fill")
+            .font(.callout.weight(.medium))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(.regularMaterial, in: Capsule())
+            .overlay { Capsule().strokeBorder(Color.primary.opacity(0.08)) }
+            .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+            .accessibilityAddTraits(.isStaticText)
+            .onAppear {
+                AccessibilityNotification.Announcement(message).post()
+            }
+    }
 }
 
 extension View {

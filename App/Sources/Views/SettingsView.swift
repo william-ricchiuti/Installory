@@ -112,7 +112,16 @@ private struct ScanningTab: View {
                 }
                 .disabled(coordinator.packages.isEmpty)
 
-                Text("Saves a copy of the current inventory to a file you choose. The environment report includes duplicates, review candidates, and a full package table. Exports never leave your Mac.")
+                AskAgentButton(
+                    title: "Copy My Setup for My AI Assistant",
+                    systemImage: "doc.on.clipboard",
+                    help: "Copy a summary of your installed tools to paste into your AI assistant. Installory never sends it anywhere."
+                ) { agent in
+                    coordinator.setupPrompt(for: agent)
+                }
+                .disabled(coordinator.packages.isEmpty)
+
+                Text("Saves a copy of the current inventory to a file you choose. The environment report includes duplicates, possibly unused packages, and a full package table. Exports never leave your Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {
@@ -143,7 +152,7 @@ private struct PrivacyTab: View {
                 Text("How Installory handles your data")
             }
 
-            // MARK: Provenance section
+            // MARK: Install history section
 
             Section {
                 Toggle("Trace how packages were installed", isOn: $coordinator.provenanceCollection)
@@ -191,7 +200,7 @@ private struct PrivacyTab: View {
                     }
                 }
             } header: {
-                Text("Provenance")
+                Text("Install History")
             }
 
             Section {

@@ -29,15 +29,15 @@ struct BaselineCompareView: View {
     private var header: some View {
         HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Baseline Comparison")
+                Text("Compare with Saved Setup")
                     .font(.title2)
                     .fontWeight(.bold)
-                Text("What's different between this Mac and the imported baseline.")
+                Text("What's different between this Mac and the saved setup you imported.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Button("Import New Baseline\u{2026}") {
+            Button("Import Another Saved Setup\u{2026}") {
                 Task { await coordinator.pickBaselineFile() }
             }
             .disabled(coordinator.isScanning)
@@ -65,7 +65,7 @@ struct BaselineCompareView: View {
                         }
                         if !changeSet.removed.isEmpty {
                             changeSection(
-                                title: "In baseline, not here (\(changeSet.removed.count))",
+                                title: "In saved setup, not here (\(changeSet.removed.count))",
                                 systemImage: "minus.circle",
                                 color: .orange
                             ) {
@@ -114,12 +114,12 @@ struct BaselineCompareView: View {
 
     private var emptyState: some View {
         ContentUnavailableView(
-            "No Baseline Imported",
+            coordinator.baselinePayload == nil ? "No Saved Setup Imported" : "No Differences",
             systemImage: "arrow.triangle.2.circlepath",
             description: Text(
                 coordinator.baselinePayload == nil
                     ? "Import a snapshot JSON captured on another Mac to see what's different here."
-                    : "This Mac matches the imported baseline — no differences found."
+                    : "This Mac matches the saved setup — no differences found."
             )
         )
     }
@@ -153,7 +153,7 @@ struct BaselineCompareView: View {
                 .help("Generate a script that reinstalls the \(changeSet.removed.count) package(s) missing from this Mac")
             }
             if coordinator.baselinePayload != nil {
-                Button("Clear Baseline", role: .destructive) {
+                Button("Clear Saved Setup", role: .destructive) {
                     coordinator.clearBaseline()
                 }
             }

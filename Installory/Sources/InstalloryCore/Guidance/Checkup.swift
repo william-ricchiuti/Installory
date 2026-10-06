@@ -199,19 +199,44 @@ public enum Checkup {
 
     static func aiToolsRow(_ input: CheckupInput) -> CheckupRow {
         guard let findings = input.agentFindings else {
-            let detail: String
-            let action: String
             if input.coverageGaps.contains(.homeFolderNotGranted) {
-                detail = "Grant access to your home folder in Settings so Installory can check your AI agent setup and MCP servers."
-                action = "Grant access"
-            } else if input.coverageGaps.contains(.agentConfigCheckDisabled) {
-                detail = "Turn on the AI tools check in Settings to look for broken skills and misconfigured MCP servers."
-                action = "Open Settings"
-            } else {
-                detail = "Run a scan to check your AI agent setup, skills, and MCP servers."
-                action = "Scan now"
+                return CheckupRow(
+                    area: .aiTools,
+                    status: .unknown,
+                    headline: "Not checked yet",
+                    detail: "Grant access to your home folder in Settings so Installory can check your AI agent setup and MCP servers.",
+                    actionTitle: "Grant access"
+                )
             }
-            return CheckupRow(area: .aiTools, status: .unknown, headline: "Not checked yet", detail: detail, actionTitle: action)
+            if input.coverageGaps.contains(.agentConfigCheckDisabled) {
+                return CheckupRow(
+                    area: .aiTools,
+                    status: .unknown,
+                    headline: "Not checked yet",
+                    detail: "Turn on the AI tools check in Settings to look for broken skills and misconfigured MCP servers.",
+                    actionTitle: "Open Settings"
+                )
+            }
+            // Nothing is blocking the check; it simply hasn't produced results
+            // (today: the AI setup check isn't available yet). Don't tell the
+            // user to scan again, which wouldn't change anything.
+            let aiWeek = input.aiInstalledThisWeekCount
+            if aiWeek > 0 {
+                return CheckupRow(
+                    area: .aiTools,
+                    status: .unknown,
+                    headline: "\(count(aiWeek, "tool")) added by AI this week",
+                    detail: "Installory doesn't check AI agent settings yet, but you can glance at what your agents installed this week.",
+                    actionTitle: "See this week's installs"
+                )
+            }
+            return CheckupRow(
+                area: .aiTools,
+                status: .unknown,
+                headline: "Not checked yet",
+                detail: "Installory doesn't check AI agent settings or MCP servers yet; that check is coming in a future update.",
+                actionTitle: nil
+            )
         }
 
         let serious = findings.high + findings.medium
@@ -260,8 +285,14 @@ public enum Checkup {
                 detail = "Turn on the secrets check in Settings to look for API keys saved in plain text."
                 action = "Open Settings"
             } else {
-                detail = "Run a scan to look for API keys saved in plain text."
-                action = "Scan now"
+                // Not blocked, just not run (today: the check isn't available yet).
+                return CheckupRow(
+                    area: .secrets,
+                    status: .unknown,
+                    headline: "Not checked yet",
+                    detail: "Installory doesn't look for API keys saved in plain text yet; that check is coming in a future update.",
+                    actionTitle: nil
+                )
             }
             return CheckupRow(area: .secrets, status: .unknown, headline: "Not checked yet", detail: detail, actionTitle: action)
         }

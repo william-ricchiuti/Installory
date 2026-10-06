@@ -78,7 +78,7 @@ struct SidebarView: View {
             let orphanCount = coordinator.orphanedPackages.count
             if orphanCount > 0 {
                 NavigationLink(value: SidebarSelection.orphans) {
-                    Label("Review Candidates (\(orphanCount))", systemImage: "leaf.circle")
+                    Label("Possibly Unused (\(orphanCount))", systemImage: "leaf.circle")
                 }
             }
 
@@ -239,12 +239,12 @@ struct SidebarView: View {
         switch status {
         case .succeeded(let count, _):
             return "\(count) package\(count == 1 ? "" : "s")"
-        case .skipped(let reason):
-            return reason
+        case .skipped:
+            return ScannerStatus.friendlySkipDescription
         case .failed(let reason, _):
             return reason
         case .timedOut:
-            return "Scan timed out"
+            return "Scan took too long and was stopped"
         }
     }
 

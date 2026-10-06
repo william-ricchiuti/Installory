@@ -1,7 +1,8 @@
 import InstalloryCore
 import SwiftUI
 
-/// Displays packages with provenance linked to matching Claude Code sessions.
+/// Displays packages whose install history links them to an AI coding agent
+/// session (Claude Code, Codex, or opencode).
 struct AIInstalledView: View {
     @Environment(AppCoordinator.self) private var coordinator
 
@@ -14,7 +15,7 @@ struct AIInstalledView: View {
         )
     }
 
-    /// Packages whose provenance evidence carries a `ClaudeCodeContext`.
+    /// Packages whose install evidence carries any agent session context.
     /// Shared with the sidebar through the generation-keyed derived-state cache.
     private var aiInstalledPackages: [Package] {
         coordinator.aiInstalledPackages
@@ -72,7 +73,7 @@ struct AIInstalledView: View {
                 ForEach(packages) { pkg in
                     AIInstalledPackageRow(
                         package: pkg,
-                        context: coordinator.provenanceByPackageId[pkg.id]?.claudeCodeContext
+                        context: coordinator.provenanceByPackageId[pkg.id]?.agentAttribution
                     )
                     .tag(pkg.id)
                 }
@@ -92,13 +93,24 @@ struct AIInstalledView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Evidence links \(aiInstalledPackages.count) package\(aiInstalledPackages.count == 1 ? "" : "s") to AI coding sessions")
                     .fontWeight(.semibold)
-                Text("Based on nearby package timestamps and matching Claude Code Bash events. This is a best-effort attribution, and history may be incomplete.")
+                Text("Based on package timestamps and matching install commands in your AI agents\u{2019} session logs (\(agentNamesSummary)). This is a best-effort match, and history may be incomplete.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 4)
+    }
+
+    /// Agents that appear in the current evidence, or all supported ones.
+    private var agentNamesSummary: String {
+        let present = Set(aiInstalledPackages.compactMap {
+            coordinator.provenanceByPackageId[$0.id]?.agentAttribution?.agent
+        })
+        let agents = AgentAttribution.Agent.allCases.filter {
+            present.isEmpty || present.contains($0)
+        }
+        return ListFormatter.localizedString(byJoining: agents.map(\.displayName))
     }
 
     // MARK: - Empty state
@@ -110,7 +122,7 @@ struct AIInstalledView: View {
             ContentUnavailableView {
                 Label("Install Tracing Is Off", systemImage: "sparkles")
             } description: {
-                Text("Turn on \u{201C}Trace how packages were installed\u{201D} in Settings \u{2192} Privacy to detect packages installed during AI coding sessions.")
+                Text("Turn on \u{201C}Trace how packages were installed\u{201D} under Install History in Settings \u{2192} Privacy to find packages your AI agents installed.")
             }
         } else {
             AnalysisEmptyStateView(
@@ -127,7 +139,7 @@ struct AIInstalledView: View {
 
 private struct AIInstalledPackageRow: View {
     let package: Package
-    let context: ProvenanceEvidence.ClaudeCodeContext?
+    let context: AgentAttribution?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -151,9 +163,9 @@ private struct AIInstalledPackageRow: View {
     }
 
     @ViewBuilder
-    private func attributionDetail(_ ctx: ProvenanceEvidence.ClaudeCodeContext) -> some View {
+    private func attributionDetail(_ ctx: AgentAttribution) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Evidence suggests this was installed during a Claude Code session")
+            Text("Evidence suggests this was installed during a \(ctx.agentName) session")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .italic()
@@ -169,7 +181,7 @@ private struct AIInstalledPackageRow: View {
                 Image(systemName: "terminal")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
-                Text(ctx.bashInvocation)
+                Text(ctx.command)
                     .font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -212,7 +224,7 @@ struct AIBadge: View {
             .clipShape(Capsule())
             .accessibilityLabel("Evidence of an AI-assisted install")
             .accessibilityAddTraits(.isStaticText)
-            .help("Installory found matching local Claude Code evidence")
+            .help("Installory found matching evidence in a local AI agent session log")
     }
 }
 

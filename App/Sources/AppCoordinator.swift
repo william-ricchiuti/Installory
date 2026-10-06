@@ -54,6 +54,8 @@ private enum DefaultsKey {
     static let firstScanTaken        = "app.installory.firstScanSnapshotTaken"
     static let migrationCompleted    = "app.installory.migration.fromBackshelf"
     static let provenanceCollection  = "app.installory.settings.provenanceCollection"
+    static let launchDays            = "app.installory.review.launchDays"
+    static let lastReviewPromptVersion = "app.installory.review.lastPromptedVersion"
 }
 
 @Observable
@@ -150,6 +152,19 @@ final class AppCoordinator {
 
     var onboardingCompleted: Bool = UserDefaults.standard.bool(forKey: DefaultsKey.onboardingCompleted)
 
+    // MARK: - Rating prompt
+
+    /// Incremented when a rating request should be shown. RootView observes it
+    /// and calls SwiftUI's `requestReview`; the coordinator stays UI-free.
+    private(set) var reviewRequestToken = 0
+
+    // MARK: - Clipboard notice
+
+    /// Short confirmation shown after a menu command copies text (for example
+    /// "Copied setup for Claude Code"). Cleared automatically.
+    private(set) var clipboardNotice: String?
+    @ObservationIgnored private var clipboardNoticeTask: Task<Void, Never>?
+
     // MARK: - Demo mode
 
     /// When true, the app is showing pre-populated sample data instead of a real
@@ -170,7 +185,15 @@ final class AppCoordinator {
     // MARK: - Settings
 
     var snapshotBeforeRemoval: SnapshotPreference = .ask
-    var removalStrategy: RemovalStrategy = .uninstall
+    /// Which removal the generated scripts use. Changing it re-scopes the
+    /// cleanup selection, because some rows (real skill folders) only have a
+    /// runnable command when moving to the Trash.
+    var removalStrategy: RemovalStrategy = .uninstall {
+        didSet {
+            guard oldValue != removalStrategy else { return }
+            reconcileCleanupSelectionForCurrentSidebar()
+        }
+    }
     var scanOnLaunch: Bool = true
 
     /// When true, Installory reads shell history and Claude Code session logs
@@ -462,9 +485,69 @@ final class AppCoordinator {
         inventoryDerivedCache.diskUsageSummary(for: packages)
     }
 
-    /// Ranked safe-to-remove candidates plus their combined reclaimable payload.
+    /// IDs of packages the user has hidden from the inventory.
+    var hiddenPackageIDs: Set<String> {
+        Set(packageUserStates.filter { $0.value.isHidden }.map(\.key))
+    }
+
+    /// Ranked safe-to-remove candidates plus their combined reclaimable size.
+    /// Hidden packages are never proposed.
     var freeUpSpaceBundle: FreeUpSpaceBundle {
-        inventoryDerivedCache.freeUpSpaceBundle(for: packages)
+        inventoryDerivedCache.freeUpSpaceBundle(
+            for: packages,
+            excludingPackageIDs: hiddenPackageIDs
+        )
+    }
+
+    /// AI-attributed packages whose install date falls in the last seven days.
+    func aiInstalledThisWeekCount(now: Date = Date()) -> Int {
+        let cutoff = now.addingTimeInterval(-7 * 86_400)
+        return aiInstalledPackages.filter { package in
+            guard let installedAt = package.installedAt else { return false }
+            return installedAt >= cutoff
+        }.count
+    }
+
+    /// PATH components at app-launch time, earliest-searched first.
+    ///
+    /// A sandboxed GUI app may have a different PATH than the user's terminal;
+    /// views that show PATH standings say so.
+    static var launchPathComponents: [String] {
+        (ProcessInfo.processInfo.environment["PATH"] ?? "")
+            .split(separator: ":", omittingEmptySubsequences: true)
+            .map(String.init)
+    }
+
+    /// Plain values for the Home checkup, built from current inventory state.
+    ///
+    /// The AI-setup and secrets checks don't exist yet, so their inputs stay
+    /// nil ("not checked").
+    func checkupInput(
+        pathComponents: [String] = AppCoordinator.launchPathComponents,
+        now: Date = Date()
+    ) -> CheckupInput {
+        let bundle = freeUpSpaceBundle
+        var gaps: [CheckupCoverageGap] = []
+        if !isDemoMode, !provenanceAccessGranted {
+            gaps.append(.homeFolderNotGranted)
+        }
+        return CheckupInput(
+            packageCount: packages.count,
+            duplicateGroupCount: duplicateGroups.count,
+            highSeverityDuplicateCount: duplicateAnalysis(pathComponents: pathComponents).active.count,
+            reviewCandidateCount: orphanedPackages.count,
+            aiInstalledThisWeekCount: aiInstalledThisWeekCount(now: now),
+            agentFindings: nil,
+            exposedSecretCount: nil,
+            reclaimableBytes: bundle.totalReclaimableBytes,
+            safeToRemoveCount: bundle.candidates.count,
+            coverageGaps: gaps
+        )
+    }
+
+    /// The four Home checkup rows.
+    var checkupRows: [CheckupRow] {
+        Checkup.make(from: checkupInput())
     }
 
     /// Discovered project workspaces, oldest-touched first (unlnown dates last).
@@ -488,9 +571,20 @@ final class AppCoordinator {
     }
 
     /// Packages the current sidebar section may include in a generated removal
-    /// script. Search does not change this scope, so an explicit selection can
-    /// remain checked while temporarily filtered from view.
+    /// script under the current removal strategy. Search does not change this
+    /// scope, so an explicit selection can remain checked while temporarily
+    /// filtered from view.
     var cleanupPackagesForCurrentSection: [Package] {
+        let strategy = removalStrategy
+        return cleanupScopePackagesForCurrentSection
+            .filter { $0.isRemovalScriptEligible(strategy: strategy) }
+    }
+
+    /// Visible packages in the current section that have a runnable removal
+    /// command under at least one strategy. Cleanup Mode is offered when this
+    /// is non-empty, so the strategy picker (shown only in Cleanup Mode) stays
+    /// reachable even when the current strategy excludes every row.
+    var cleanupScopePackagesForCurrentSection: [Package] {
         let candidates: [Package]
         switch sidebarSelection {
         case nil, .all:
@@ -516,7 +610,7 @@ final class AppCoordinator {
     }
 
     var canEnterCleanupMode: Bool {
-        !cleanupPackagesForCurrentSection.isEmpty
+        !cleanupScopePackagesForCurrentSection.isEmpty
     }
 
     var selectedCleanupPackages: [Package] {
@@ -528,7 +622,7 @@ final class AppCoordinator {
     func reconcileCleanupSelectionForCurrentSidebar() {
         let eligibleIDs = Set(cleanupPackagesForCurrentSection.map(\.id))
         selectedForCleanup.formIntersection(eligibleIDs)
-        if eligibleIDs.isEmpty, isCleanupMode {
+        if isCleanupMode, cleanupScopePackagesForCurrentSection.isEmpty {
             isCleanupMode = false
         }
     }
@@ -929,8 +1023,8 @@ final class AppCoordinator {
     /// chosen snapshot JSON as the comparison baseline.
     func pickBaselineFile() async {
         let panel = NSOpenPanel()
-        panel.title = "Import Baseline"
-        panel.message = "Choose a snapshot JSON captured on another Mac to compare against this inventory."
+        panel.title = "Import Saved Setup"
+        panel.message = "Choose a snapshot JSON saved on another Mac to compare against this inventory."
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
@@ -940,7 +1034,7 @@ final class AppCoordinator {
         do {
             try await importBaseline(from: url)
         } catch {
-            actionError = "Couldn\u{2019}t import baseline. \(error.localizedDescription)"
+            actionError = "Couldn\u{2019}t import the saved setup. \(error.localizedDescription)"
         }
     }
 
@@ -1069,6 +1163,82 @@ final class AppCoordinator {
     func completeOnboarding() {
         onboardingCompleted = true
         UserDefaults.standard.set(true, forKey: DefaultsKey.onboardingCompleted)
+    }
+
+    // MARK: - Rating prompt
+
+    private static var currentAppVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
+    }
+
+    /// Records today as a launch day (used only to gate the rating prompt).
+    func recordLaunchDay(now: Date = Date()) {
+        guard !isDemoMode else { return }
+        let defaults = UserDefaults.standard
+        let days = defaults.stringArray(forKey: DefaultsKey.launchDays) ?? []
+        let updated = ReviewPromptPolicy.recording(
+            day: ReviewPromptPolicy.dayKey(for: now),
+            in: days
+        )
+        if updated != days {
+            defaults.set(updated, forKey: DefaultsKey.launchDays)
+        }
+    }
+
+    /// Asks for a rating after a completed real scan when the policy allows,
+    /// and remembers the version so it happens at most once per release.
+    private func requestReviewIfAppropriate() {
+        let defaults = UserDefaults.standard
+        let version = Self.currentAppVersion
+        let rows = checkupRows
+        let context = ReviewPromptPolicy.Context(
+            isDemoMode: isDemoMode,
+            onboardingCompleted: onboardingCompleted,
+            scanCompleted: lastScanCompletedAt != nil && !packages.isEmpty,
+            distinctLaunchDays: (defaults.stringArray(forKey: DefaultsKey.launchDays) ?? []).count,
+            reclaimableBytes: freeUpSpaceBundle.totalReclaimableBytes,
+            checkupAllGood: rows.allSatisfy { $0.status == .good },
+            currentVersion: version,
+            lastPromptedVersion: defaults.string(forKey: DefaultsKey.lastReviewPromptVersion)
+        )
+        guard ReviewPromptPolicy.shouldRequestReview(context) else { return }
+        defaults.set(version, forKey: DefaultsKey.lastReviewPromptVersion)
+        reviewRequestToken &+= 1
+    }
+
+    // MARK: - Agent prompts
+
+    /// Prompt builder for `agent`, rendering home paths as `~`.
+    func promptBuilder(for agent: PromptAgent) -> AgentPromptBuilder {
+        AgentPromptBuilder(agent: agent, homeDirectory: UserHome.directory)
+    }
+
+    /// "Here's my setup" prompt built from the same Markdown the environment
+    /// report export writes.
+    func setupPrompt(for agent: PromptAgent, now: Date = Date()) -> AgentPrompt {
+        let report = EnvironmentReportRenderer().render(
+            packages: packages,
+            duplicateGroups: duplicateGroups,
+            orphans: orphanedPackages,
+            now: now
+        )
+        return promptBuilder(for: agent).setupPrompt(environmentReport: report)
+    }
+
+    /// Copies the setup prompt and shows a short confirmation (menu command).
+    func copySetupPrompt(for agent: PromptAgent) {
+        PromptClipboard.copy(setupPrompt(for: agent).body)
+        showClipboardNotice("Copied your setup for \(agent.displayName ?? "your AI assistant")")
+    }
+
+    func showClipboardNotice(_ message: String) {
+        clipboardNotice = message
+        clipboardNoticeTask?.cancel()
+        clipboardNoticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            self?.clipboardNotice = nil
+        }
     }
 
     /// Re-show the onboarding sheet on next view appearance. Used by Settings.
@@ -1597,6 +1767,7 @@ final class AppCoordinator {
         }
 
         await captureAutomaticFirstScanSnapshotIfNeeded()
+        requestReviewIfAppropriate()
 
         if let dao = scanRunDAO {
             let scanRun = ScanRun(

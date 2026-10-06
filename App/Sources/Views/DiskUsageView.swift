@@ -24,9 +24,9 @@ struct DiskUsageView: View {
             if coordinator.packages.isEmpty {
                 AnalysisEmptyStateView(
                     state: analysisEmptyState,
-                    noResultsTitle: "No Measured Package Payload",
+                    noResultsTitle: "No Sizes Measured",
                     noResultsSystemImage: "chart.bar.xaxis",
-                    noResultsDescription: "Run a package scan before reviewing measured payload."
+                    noResultsDescription: "Run a package scan to see how much space your packages use."
                 )
             } else if summary.measuredPackageCount == 0 {
                 sizeUnavailableState(summary)
@@ -52,7 +52,7 @@ struct DiskUsageView: View {
             }
 
             if summary.totalKnownBytes > 0 || summary.totalOverflowed {
-                Section("Measured payload by package manager") {
+                Section("Size on disk by package manager") {
                     managerChart(summary.managers)
                         .frame(minHeight: chartHeight(for: summary.managers.count))
                         .selectionDisabled()
@@ -142,7 +142,7 @@ struct DiskUsageView: View {
             Text(byteLabel(scored.package.sizeBytes ?? 0))
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .accessibilityLabel("Measured payload \(byteLabel(scored.package.sizeBytes ?? 0))")
+                .accessibilityLabel("Size on disk \(byteLabel(scored.package.sizeBytes ?? 0))")
         }
         .padding(.vertical, 2)
     }
@@ -160,11 +160,11 @@ struct DiskUsageView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Measured package payload")
+                    Text("Size on disk")
                         .font(.headline)
                     Text(totalLabel(summary))
                         .font(.title2.weight(.semibold))
-                        .accessibilityLabel("Measured package payload, \(totalLabel(summary))")
+                        .accessibilityLabel("Size on disk, \(totalLabel(summary))")
                 }
                 Spacer(minLength: 12)
                 if coordinator.isScanning {
@@ -189,7 +189,7 @@ struct DiskUsageView: View {
                 .foregroundStyle(.secondary)
             }
 
-            Text("Logical package payload can differ from Finder or Disk Utility and is not a promise of reclaimable space.")
+            Text("Sizes are measured from package files and can differ from Finder or Disk Utility. They are not a promise of space you\u{2019}ll get back.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -221,7 +221,7 @@ struct DiskUsageView: View {
         }
         .chartYScale(domain: usages.map { $0.manager.displayName })
         .chartXAxisLabel("Measured logical bytes")
-        .accessibilityLabel("Measured package payload by manager")
+        .accessibilityLabel("Size on disk by package manager")
         .padding(.trailing, 130)
     }
 
@@ -237,7 +237,7 @@ struct DiskUsageView: View {
             Text(byteLabel(package.sizeBytes ?? 0))
                 .font(.callout.monospacedDigit())
                 .foregroundStyle(.secondary)
-                .accessibilityLabel("Measured payload \(byteLabel(package.sizeBytes ?? 0))")
+                .accessibilityLabel("Size on disk \(byteLabel(package.sizeBytes ?? 0))")
         }
         .padding(.vertical, 2)
     }
