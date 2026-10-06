@@ -224,7 +224,7 @@ reviews it in a sheet, then copies or saves it. Installory never runs it.
   it. Core types take the home directory as an injected parameter so tests can
   point them at fixtures.
 - Onboarding asks for the home folder (and, separately, Homebrew's prefix when
-  it is outside home) and shows a "Reads / Never reads" list.
+  it is outside home) and shows a "Reads / Doesn't open" list (a code-level promise; the home grant itself is broad).
 
 ## Invariants and CI
 
@@ -253,14 +253,14 @@ a proof. Code review still matters.
 
 ## Testing strategy
 
-- **Core** (as of 2026-10-05: 902 tests): scanners and auditors run against
+- **Core** (as of 2026-10-06: 914 tests): scanners and auditors run against
   fixture trees through in-memory `DirectoryAccessProvider` fakes, never the
   developer's real home. AgentConfig has fixture configs for every supported
   client (`Fixtures/agent-config/`), including secrets that must come out
   masked. Other suites cover reconciliation, migrations, provenance matching
   and redaction, script output (subshell wrapping, eligibility), prompt
   guardrails and redaction, checkup rows, and `UserHome`.
-- **App** (as of 2026-10-05: 68+ tests): coordinator persistence, onboarding
+- **App** (as of 2026-10-06: 81 tests): coordinator persistence, onboarding
   flow and access plan, Home checkup mapping, canonical directories.
 - **Manual:** a signed, sandboxed build with a real home-folder grant is the
   only way to exercise bookmarks end to end; see the hands-on step in

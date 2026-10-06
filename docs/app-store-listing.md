@@ -106,4 +106,4 @@ account). Caption text is overlaid or used as the screenshot's headline.
 | 3 | AI Setup: a plain-text secret finding with the value masked | `Find API keys left in plain text, safely masked` | 47 |
 | 4 | Package detail with Install History showing an AI-installed tool and the Ask Your AI Assistant menu open | `See what your AI assistant installed` | 36 |
 | 5 | Cleanup selection with verdict badges and the script sheet with "How to run this" | `Know what's safe to remove, then you decide` | 43 |
-| 6 | Onboarding "Allow your home folder" page with the Reads / Never reads list | `Read-only, offline, and never runs commands` | 43 |
+| 6 | Onboarding "Allow your home folder" page with the Reads / Doesn't open list | `Read-only, offline, and never runs commands` | 43 |

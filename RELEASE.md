@@ -23,7 +23,7 @@ Installory is now a read-only checkup for a Mac you code on with AI.
 • Finds API keys and passwords written in plain text in AI tool settings. Installory shows only the key name and file, never the value.
 • Ask your AI assistant: copy a ready-made prompt for Claude Code, Codex or any assistant about a package, a duplicate, a cleanup, or a finding. Prompts ask the assistant to explain each step and wait for your OK.
 • Copy My Setup for My AI Assistant: give your assistant a short summary of your tools so its advice fits your Mac.
-• New first-run guide that explains exactly what Installory reads and never reads, and asks for your home folder (read only).
+• New first-run guide that explains which folders Installory opens and which it doesn't, and asks for your home folder (read only).
 • Install History (formerly provenance) shows which tools you installed and which Claude Code, Codex or opencode installed. Still optional and off by default.
 • Clearer names: Possibly Unused, Saved Setup, Size on disk, and "Runs first" / "Hidden by another copy" for duplicates.
 • Safer cleanup scripts: commands run in a subshell so they can't change your Terminal session, and each script explains how to run it.
@@ -107,6 +107,18 @@ repository only through its own reviewed deploy.
 
 ### Known advisories
 
+- **Check the home-folder fix in a signed, sandboxed build.** 1.5.0 built
+  `~/.claude`, `~/.cargo`, `~/.nvm` and similar paths from the sandbox
+  container instead of the real home folder, so those scanners likely found
+  nothing for App Store users. This release resolves the real home folder
+  (`UserHome`). Unit tests cover it, but the end-to-end path (grant the home
+  folder in onboarding, then confirm Agent CLIs, Skills, Editor Extensions,
+  Cargo, pipx and AI Setup populate) has only been exercised in unsigned
+  local builds. Do this before submitting.
+- **Scans take longer with a home grant.** The AI setup audit runs inside the
+  scan, before install history, so the scanning indicator stays on while it
+  reads AI tool settings. Fine for typical setups; revisit if reports say
+  scans feel slow.
 - **Command-F search focus: fixed, verify by hand.** 1.5.0 shipped with
   Command-F not focusing the SwiftUI search field. This release adds an
   Edit → Find Packages command (Command-F) that focuses the visible search

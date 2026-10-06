@@ -58,8 +58,9 @@ The items marked *new* are in the next release (unreleased; proposed 1.6.0).
   Home, the menu bar, and Settings.
 - **First-run guide** *(new)*: five steps. It asks for your home folder (read
   only) and lists what Installory reads (package folders, AI tool settings,
-  editor extensions) and never reads (Documents, Photos, Mail, browser data,
-  passwords and keychain). Homebrew outside your home folder is a separate,
+  editor extensions) and which folders it doesn't open (Documents, Photos,
+  Mail, browser data, passwords and keychain). That is a promise kept in code:
+  the macOS home-folder grant itself is broad. Homebrew outside your home folder is a separate,
   optional grant. "Explore with Sample Data" works without any folder access.
 - **Install history** (formerly "provenance"): optional and off by default.
   Matches each tool to the shell command or the Claude Code, Codex or opencode
