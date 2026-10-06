@@ -165,21 +165,22 @@ public enum DemoData {
 
         // MARK: Demo: spec 01/02 — cross-manager duplicates with PATH resolution & severity
 
-        // Active conflict: brew node wins PATH, cargo node is shadowed.
-        // (Assumes /opt/homebrew/bin precedes ~/.cargo/bin on PATH, which is typical.)
+        // Active conflict: Homebrew's typescript and the global npm typescript
+        // (listed above) both provide `tsc`; whichever directory is first on PATH wins.
         pkg(.brew, "node", version: "20.0.0",
             path: "/opt/homebrew/Cellar/node/20.0.0",
             installedDaysAgo: 30, size: 84_000_000)
-        pkg(.cargo, "node", version: "20.1.0",
-            path: "/Users/demo/.cargo/bin/node",
-            installedDaysAgo: 14, confidence: .low, size: 2_100_000)
+        pkg(.brew, "typescript", version: "5.6.2",
+            path: "/opt/homebrew/Cellar/typescript/5.6.2",
+            installedDaysAgo: 14, size: 23_000_000)
 
-        // Potential conflict: brew and pipx install a "python" tool under different managers.
+        // Potential conflict: Homebrew's black and the pipx black (listed above)
+        // install the same formatter twice.
         pkg(.brew, "python", version: "3.12.3",
             path: "/opt/homebrew/Cellar/python@3.12/3.12.3",
             installedDaysAgo: 60, size: 72_000_000)
-        pkg(.pipx, "python", version: "3.11.7",
-            path: "/Users/demo/.local/pipx/venvs/python",
+        pkg(.brew, "black", version: "24.8.0",
+            path: "/opt/homebrew/Cellar/black/24.8.0",
             installedDaysAgo: 90, confidence: .medium, size: 8_000_000)
 
         // Benign: pip library vs Mac App Store app — same lowercased name, no real CLI conflict.
