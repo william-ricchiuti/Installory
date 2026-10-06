@@ -266,6 +266,14 @@ final class AppCoordinator {
         return folderAccess.grantedPath(covering: homePath) != nil
     }
 
+    /// Install history is switched on but cannot run: no grant covers the real
+    /// home folder. Before 1.6 the check used the sandbox container's home, so
+    /// upgraders can have the toggle on without a usable grant. Shown honestly
+    /// rather than flipping the stored toggle.
+    var installHistoryNeedsHomeAccess: Bool {
+        !isDemoMode && provenanceCollection && !provenanceAccessGranted
+    }
+
     // MARK: - Computed: AI setup
 
     /// True when the AI setup audit can see the user's settings (home folder
@@ -757,11 +765,18 @@ final class AppCoordinator {
         return "\(pkgs) \(pkgWord) across \(managers) \(mgrWord)."
     }
 
-    var lastScanSummary: String? {
-        guard let date = lastScanCompletedAt else { return nil }
+    var lastScanSummary: String? { lastScanSummary(relativeTo: Date()) }
+
+    /// "Last scanned …" relative to `now`, so a ticking view can re-render it.
+    func lastScanSummary(relativeTo now: Date) -> String? {
+        Self.lastScanSummary(for: lastScanCompletedAt, relativeTo: now)
+    }
+
+    static func lastScanSummary(for date: Date?, relativeTo now: Date) -> String? {
+        guard let date else { return nil }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
-        return "Last scanned \(formatter.localizedString(for: date, relativeTo: Date()))"
+        return "Last scanned \(formatter.localizedString(for: date, relativeTo: now))"
     }
 
     /// Per-manager status entries (managers that ran or were skipped/failed),
@@ -814,6 +829,21 @@ final class AppCoordinator {
 
     /// Sets (or clears, when `note` is empty) the free-form note attached to a
     /// package.
+    /// Saves an unsaved note draft (same path as Save Note) when it differs
+    /// from the stored note. Called when the detail view goes away, because
+    /// `.id(package.id)` resets the draft on selection change. A whitespace-only
+    /// draft counts as "no note", so clearing a note saves but an untouched
+    /// empty draft writes nothing.
+    @discardableResult
+    func saveNoteDraftIfChanged(_ draft: String, for packageID: String) -> Bool {
+        let stored = note(for: packageID) ?? ""
+        let draftIsEmpty = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let storedIsEmpty = stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard draft != stored, !(draftIsEmpty && storedIsEmpty) else { return false }
+        setNote(draft, for: packageID)
+        return true
+    }
+
     func setNote(_ note: String, for packageID: String) {
         let existing = packageUserStates[packageID]
         updateUserState(
@@ -1076,7 +1106,7 @@ final class AppCoordinator {
             return
         }
         await hydratePersistedState()
-        await scan()
+        await scan(userInitiated: true)
         await refreshSnapshots()
     }
 
@@ -1227,6 +1257,12 @@ final class AppCoordinator {
             distinctLaunchDays: (defaults.stringArray(forKey: DefaultsKey.launchDays) ?? []).count,
             reclaimableBytes: freeUpSpaceBundle.totalReclaimableBytes,
             checkupAllGood: rows.allSatisfy { $0.status == .good },
+            noScanProblems: !scanStatuses.values.contains { status in
+                switch status {
+                case .failed, .timedOut: true
+                case .succeeded, .skipped: false
+                }
+            },
             currentVersion: version,
             lastPromptedVersion: defaults.string(forKey: DefaultsKey.lastReviewPromptVersion)
         )
@@ -1664,7 +1700,10 @@ final class AppCoordinator {
 
     // MARK: - Scan
 
-    func scan() async {
+    /// - Parameter userInitiated: true for scans the user started (⌘R, Check
+    ///   Again, a new folder grant). Only those may ask for a rating; the
+    ///   automatic launch scan never does.
+    func scan(userInitiated: Bool = false) async {
         guard !isDemoMode else { return }
         guard !isScanning else { return }
         isScanning = true
@@ -1835,7 +1874,9 @@ final class AppCoordinator {
         await runAgentConfigAudit(grantedURLs: accessedURLs)
         // After the audit, so the checkup that gates the review request
         // reflects this scan's AI setup findings rather than the previous one.
-        requestReviewIfAppropriate()
+        if userInitiated {
+            requestReviewIfAppropriate()
+        }
 
         // MARK: Provenance collection (gated by user opt-in)
         //

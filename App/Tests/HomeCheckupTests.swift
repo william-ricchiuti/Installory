@@ -90,31 +90,65 @@ struct HomeCheckupTests {
         #expect(input.packageCount == 1)
     }
 
+    @Test("Install history on without a home grant is shown as needing access, not active")
+    func installHistoryNeedsHomeAccess() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let coordinator = AppCoordinator(dataDirectoryOverride: directory)
+        coordinator.provenanceCollection = false
+        #expect(!coordinator.installHistoryNeedsHomeAccess)
+        coordinator.provenanceCollection = true
+        // Upgraders from 1.5 can have the toggle on but no grant for the real
+        // home folder; the stored toggle is left alone and the state is shown.
+        #expect(coordinator.installHistoryNeedsHomeAccess == !coordinator.provenanceAccessGranted)
+        #expect(coordinator.provenanceCollection)
+    }
+
+    @Test("Unsaved note drafts are saved when the detail view goes away")
+    func noteDraftAutosave() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let coordinator = AppCoordinator(dataDirectoryOverride: directory)
+        let id = "brew::jq"
+        // Untouched empty draft: nothing written.
+        #expect(!coordinator.saveNoteDraftIfChanged("", for: id))
+        #expect(!coordinator.saveNoteDraftIfChanged("  \n", for: id))
+        #expect(coordinator.packageUserStates[id] == nil)
+        // A typed draft is saved.
+        #expect(coordinator.saveNoteDraftIfChanged("keep for work", for: id))
+        #expect(coordinator.note(for: id) == "keep for work")
+        // Unchanged draft: no write.
+        #expect(!coordinator.saveNoteDraftIfChanged("keep for work", for: id))
+        // Clearing the note on purpose is saved, like Save Note.
+        #expect(coordinator.saveNoteDraftIfChanged("", for: id))
+        #expect(coordinator.note(for: id) == nil)
+    }
+
     @Test("Checkup actions route to the screen that explains each row")
     func checkupRowActions() {
-        let duplicates = CheckupRow(area: .installedTools, status: .attention, headline: "", detail: "", actionTitle: "Review duplicates")
-        #expect(duplicates.action == .navigate(.duplicates))
-        let review = CheckupRow(area: .installedTools, status: .good, headline: "", detail: "", actionTitle: "See review list")
-        #expect(review.action == .navigate(.orphans))
-        let week = CheckupRow(area: .aiTools, status: .good, headline: "", detail: "", actionTitle: "See this week's installs")
-        #expect(week.action == .navigate(.aiInstalled))
-        let space = CheckupRow(area: .space, status: .attention, headline: "", detail: "", actionTitle: "Free up space")
-        #expect(space.action == .navigate(.diskUsage))
-        let grant = CheckupRow(area: .secrets, status: .unknown, headline: "", detail: "", actionTitle: "Grant access")
-        #expect(grant.action == .grantHomeAccess)
-        let settings = CheckupRow(area: .aiTools, status: .unknown, headline: "", detail: "", actionTitle: "Open Settings")
-        #expect(settings.action == .openSettings)
-        let aiReview = CheckupRow(area: .aiTools, status: .attention, headline: "", detail: "", actionTitle: "Review AI tools")
-        #expect(aiReview.action == .navigate(.aiSetup))
-        let aiNotes = CheckupRow(area: .aiTools, status: .good, headline: "", detail: "", actionTitle: "See notes")
-        #expect(aiNotes.action == .navigate(.aiSetup))
-        let keys = CheckupRow(area: .secrets, status: .attention, headline: "", detail: "", actionTitle: "Review keys")
-        #expect(keys.action == .navigate(.aiSetup))
-        let scan = CheckupRow(area: .aiTools, status: .unknown, headline: "", detail: "", actionTitle: "Scan now")
-        #expect(scan.action == .scan)
-        let none = CheckupRow(area: .secrets, status: .good, headline: "", detail: "", actionTitle: nil)
-        #expect(none.action == nil)
+        func row(_ area: CheckupArea, _ action: CheckupAction?) -> CheckupRow {
+            CheckupRow(area: area, status: .good, headline: "", detail: "", action: action)
+        }
+        #expect(row(.installedTools, .reviewDuplicates).command == .navigate(.duplicates))
+        #expect(row(.installedTools, .seePossiblyUnused).command == .navigate(.orphans))
+        #expect(row(.installedTools, .seePossiblyUnused).actionTitle == "See possibly unused")
+        #expect(row(.aiTools, .seeThisWeeksInstalls).command == .navigate(.aiInstalled))
+        #expect(row(.space, .freeUpSpace).command == .navigate(.diskUsage))
+        #expect(row(.space, .reviewSpace).command == .navigate(.diskUsage))
+        #expect(row(.secrets, .grantHomeAccess).command == .grantHomeAccess)
+        #expect(row(.aiTools, .openSettings).command == .openSettings)
+        #expect(row(.aiTools, .reviewAITools).command == .navigate(.aiSetup))
+        #expect(row(.aiTools, .seeAINotes).command == .navigate(.aiSetup))
+        #expect(row(.secrets, .reviewKeys).command == .navigate(.aiSetup))
+        #expect(row(.aiTools, .scan).command == .scan)
+        // Routing depends only on the typed action, not the area or title.
+        #expect(row(.space, .seePossiblyUnused).command == .navigate(.orphans))
+        let none = row(.secrets, nil)
+        #expect(none.command == nil)
+        #expect(none.actionTitle == nil)
         #expect(none.statusAccessibilityLabel == "Looks good")
+        // Every action has display text.
+        #expect(CheckupAction.allCases.allSatisfy { !$0.title.isEmpty })
     }
 
     // MARK: - Free up space
@@ -193,6 +227,7 @@ struct HomeCheckupTests {
         days: Int = 3,
         reclaimable: Int64 = 1,
         allGood: Bool = false,
+        noScanProblems: Bool = true,
         version: String = "1.2",
         lastPrompted: String? = nil
     ) -> ReviewPromptPolicy.Context {
@@ -203,6 +238,7 @@ struct HomeCheckupTests {
             distinctLaunchDays: days,
             reclaimableBytes: reclaimable,
             checkupAllGood: allGood,
+            noScanProblems: noScanProblems,
             currentVersion: version,
             lastPromptedVersion: lastPrompted
         )
@@ -218,6 +254,8 @@ struct HomeCheckupTests {
         #expect(!ReviewPromptPolicy.shouldRequestReview(reviewContext(onboardingCompleted: false)))
         #expect(!ReviewPromptPolicy.shouldRequestReview(reviewContext(scanCompleted: false)))
         #expect(!ReviewPromptPolicy.shouldRequestReview(reviewContext(days: 2)))
+        #expect(!ReviewPromptPolicy.shouldRequestReview(reviewContext(noScanProblems: false)))
+        #expect(!ReviewPromptPolicy.shouldRequestReview(reviewContext(reclaimable: 0, allGood: true, noScanProblems: false)))
         #expect(!ReviewPromptPolicy.shouldRequestReview(reviewContext(lastPrompted: "1.2")))
         #expect(ReviewPromptPolicy.shouldRequestReview(reviewContext(lastPrompted: "1.1")))
     }

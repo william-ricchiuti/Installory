@@ -144,7 +144,7 @@ private struct PrivacyTab: View {
         @Bindable var coordinator = coordinator
         Form {
             Section {
-                Label("Installory makes no network connections.", systemImage: "network.slash")
+                Label("Installory has no internet code of its own.", systemImage: "network.slash")
                 Label("All data stays on your Mac.", systemImage: "lock.shield")
                 Label("Installory reads, never writes, your package directories.", systemImage: "eye")
                 Label("Cleanup scripts are generated, never executed.", systemImage: "terminal")
@@ -190,6 +190,14 @@ private struct PrivacyTab: View {
                         }
                         .disabled(coordinator.isScanning)
                     } else {
+                        // On but not running: say so plainly instead of
+                        // looking active (common right after upgrading to 1.6).
+                        Label(
+                            "Paused: Installory needs read access to your home folder (\(UserHome.directory.path)) to trace installs.",
+                            systemImage: "exclamationmark.triangle.fill"
+                        )
+                        .foregroundStyle(.orange)
+                        .font(.callout)
                         Button("Grant read access\u{2026}") {
                             Task { await coordinator.requestProvenanceAccess() }
                         }

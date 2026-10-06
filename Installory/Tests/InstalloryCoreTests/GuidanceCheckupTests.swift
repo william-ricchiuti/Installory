@@ -74,7 +74,7 @@ struct GuidanceCheckupTests {
         let review = row(.installedTools, CheckupInput(packageCount: 30, reviewCandidateCount: 5))
         #expect(review.status == .good)
         #expect(review.detail.contains("5 tools that nothing else needs"))
-        #expect(review.actionTitle == "See review list")
+        #expect(review.actionTitle == "See possibly unused")
     }
 
     // MARK: AI tools

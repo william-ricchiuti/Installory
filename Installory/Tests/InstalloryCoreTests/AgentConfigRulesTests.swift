@@ -227,6 +227,27 @@ struct AgentConfigPermissionTests {
         #expect(rm.explanation.contains("delete any file"))
     }
 
+    @Test("repeated permission rules are de-duplicated in order, so finding ids stay unique")
+    func duplicateRules() throws {
+        let json = """
+        {"permissions": {"allow": ["Bash", "Read", "Bash", "WebFetch", "Read"],
+                         "deny": ["Read(./.env)", "Read(./.env)"]},
+         "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "say done"},
+                                       {"type": "command", "command": "say done"}]}]}}
+        """
+        let provider = InMemoryDirectoryAccessProvider.make { builder in
+            builder.addFile(at: F.home.appendingPathComponent(".claude/settings.json"), data: Data(json.utf8))
+        }
+        let audit = F.audit(provider: provider, projects: [])
+        let profile = try #require(audit.permissionProfiles.first { $0.tool == .claudeCode })
+        #expect(profile.allow == ["Bash", "Read", "WebFetch"])
+        #expect(profile.deny == ["Read(./.env)"])
+        #expect(profile.hooks.first?.commands == ["say done"])
+        let ids = audit.findings.map(\.id)
+        #expect(Set(ids).count == ids.count)
+        #expect(audit.findings.filter { $0.kind == .broadAllowRule }.count == 2)
+    }
+
     @Test("broad-rule classifier")
     func classifier() {
         let broad = ["Bash", "Bash(*)", "Bash(:*)", "Bash(rm:*)", "Bash(rm *)", "Bash(sudo:*)", "Bash(curl:*)",

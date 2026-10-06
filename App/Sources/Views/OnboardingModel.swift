@@ -19,6 +19,10 @@ enum OnboardingPage: Int, CaseIterable, Sendable {
 
     var next: OnboardingPage? { OnboardingPage(rawValue: rawValue + 1) }
     var previous: OnboardingPage? { OnboardingPage(rawValue: rawValue - 1) }
+
+    /// Where Esc goes: back one page, or nowhere on the first page. Esc never
+    /// skips the guide; only the visible Skip button completes it.
+    var escapeDestination: OnboardingPage? { previous }
 }
 
 /// What the Access page should offer, derived from the current grants and

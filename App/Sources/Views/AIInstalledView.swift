@@ -124,6 +124,12 @@ struct AIInstalledView: View {
             } description: {
                 Text("Turn on \u{201C}Trace how packages were installed\u{201D} under Install History in Settings \u{2192} Privacy to find packages your AI agents installed.")
             }
+        } else if analysisEmptyState == .noResults, coordinator.installHistoryNeedsHomeAccess {
+            ContentUnavailableView {
+                Label("Install History Needs Access", systemImage: "folder.badge.questionmark")
+            } description: {
+                Text("Install history is on, but Installory can\u{2019}t read your home folder yet. Allow it under Install History in Settings \u{2192} Privacy.")
+            }
         } else {
             AnalysisEmptyStateView(
                 state: analysisEmptyState,

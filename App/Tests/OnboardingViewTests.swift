@@ -1,3 +1,4 @@
+import Foundation
 import InstalloryCore
 import Testing
 @testable import Installory
@@ -23,6 +24,27 @@ struct OnboardingViewTests {
         #expect(OnboardingPage.done.next == nil)
         #expect(OnboardingPage.access.next == .history)
         #expect(OnboardingPage.history.previous == .access)
+    }
+
+    @Test("Esc goes back one page and never skips the guide")
+    func escapeGoesBack() throws {
+        #expect(OnboardingPage.welcome.escapeDestination == nil)
+        #expect(OnboardingPage.promise.escapeDestination == .welcome)
+        #expect(OnboardingPage.done.escapeDestination == .history)
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/Views/OnboardingView.swift"),
+            encoding: .utf8
+        )
+        // Skip must not be bound to Esc; Esc is handled by onExitCommand.
+        #expect(!source.contains(".keyboardShortcut(.cancelAction)"))
+        #expect(source.contains(".onExitCommand"))
+        #expect(source.contains(".interactiveDismissDisabled()"))
+        // The promise page must not claim the app never touches the network:
+        // the system rating dialog may contact the App Store.
+        #expect(!source.contains("never connects to the internet"))
     }
 
     @Test("Page indicator reads 'Page n of 5'")

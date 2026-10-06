@@ -39,10 +39,10 @@ Chars: 156
 
 ## Description (limit 4000)
 
-Chars: 2,394
+Chars: 2,404
 
 ```
-See what's on the Mac you code on with AI, what your AI tools installed and changed, and what's safe to clean up. Installory only reads. It never changes your Mac, never runs commands, and never connects to the internet.
+See what's on the Mac you code on with AI, what your AI tools installed and changed, and what's safe to clean up. Installory only reads. It never changes your Mac, never runs commands, and never sends your data anywhere.
 
 A CHECKUP IN PLAIN ENGLISH
 Home shows four rows: installed tools, AI tools, secrets in AI tool settings, and space. Each one says whether it looks good, needs a look, or hasn't been checked yet, and what to do next.
@@ -70,7 +70,7 @@ Copy a ready-made prompt for Claude Code, Codex or any assistant about a package
 HOW IT STAYS SAFE
 • Reads only the folders you allow, with read-only access.
 • Never installs, removes or changes software, and never runs commands.
-• No network access. Descriptions are built in.
+• No internet code of its own. Descriptions are built in.
 • No account, no tracking. App Privacy: Data Not Collected.
 • Try it first with sample data, no folder access needed.
 

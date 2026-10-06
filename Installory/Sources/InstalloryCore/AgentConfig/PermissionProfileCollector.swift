@@ -57,9 +57,9 @@ struct PermissionProfileCollector {
             tool: .claudeCode,
             scope: scope,
             configFile: url,
-            allow: Array(AgentConfigJSON.stringArray(permissions["allow"]).prefix(cap)).map(redactRule),
-            ask: Array(AgentConfigJSON.stringArray(permissions["ask"]).prefix(cap)).map(redactRule),
-            deny: Array(AgentConfigJSON.stringArray(permissions["deny"]).prefix(cap)).map(redactRule),
+            allow: rules(permissions["allow"], cap: cap),
+            ask: rules(permissions["ask"], cap: cap),
+            deny: rules(permissions["deny"], cap: cap),
             defaultMode: AgentConfigJSON.string(permissions["defaultMode"]),
             hooks: hooks(from: object["hooks"], limit: limits.maximumHooks),
             maskedEnv: AgentConfigJSON.stringPairs(object["env"]).map {
@@ -68,6 +68,20 @@ struct PermissionProfileCollector {
             enableAllProjectMcpServers: AgentConfigJSON.bool(object["enableAllProjectMcpServers"]),
             skipDangerousModePermissionPrompt: skipPrompt
         )
+    }
+
+    /// Capped, redacted, de-duplicated rules in file order. A rule listed twice
+    /// (or two rules that redact to the same text) would otherwise give the
+    /// UI's `ForEach(id: \.self)` and the `broadAllowRule:<file>:<rule>`
+    /// finding ids duplicate identities.
+    private static func rules(_ value: Any?, cap: Int) -> [String] {
+        uniqued(Array(AgentConfigJSON.stringArray(value).prefix(cap)).map(redactRule))
+    }
+
+    /// Removes repeats, keeping the first occurrence of each string.
+    static func uniqued(_ values: [String]) -> [String] {
+        var seen = Set<String>()
+        return values.filter { seen.insert($0).inserted }
     }
 
     /// Permission rules are usually short patterns, but "don't ask again"
@@ -97,7 +111,7 @@ struct PermissionProfileCollector {
                     commands.append(AgentConfigSecretMasker.redactCommand(command))
                 }
                 guard !commands.isEmpty else { continue }
-                result.append(AgentHook(event: event, matcher: matcher, commands: commands))
+                result.append(AgentHook(event: event, matcher: matcher, commands: uniqued(commands)))
                 if result.count >= limit { return result }
             }
         }

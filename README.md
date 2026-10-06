@@ -11,7 +11,8 @@ and casks, pip, pipx, persistent uv tools, npm, Cargo, RubyGems, receipt-bearing
 Mac App Store apps, and your AI tools: Claude Code and opencode skills, agent
 CLIs, VS Code and Cursor extensions, and the MCP servers, instruction files and
 permission settings those tools use. It never changes anything, never runs a
-command, and never connects to the internet.
+command, and never sends your data anywhere: it has no internet code of its
+own.
 
 <!-- TODO: these screenshots predate the new checkup Home and the AI Setup
 screen. Replace them before the next release (see docs/app-store-listing.md

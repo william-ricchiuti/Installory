@@ -69,7 +69,17 @@ struct MiniTOMLParser {
     private var root: [String: TOMLValue] = [:]
     private var currentTable: [PathStep] = []
     private var issues = 0
+    private var headerCount = 0
+    /// Bounds value nesting (arrays/inline tables) and, with
+    /// `maximumKeysPerPath`, the depth of every recursive tree mutation. Key
+    /// paths and nesting are attacker-controlled (any file in the home folder),
+    /// and the scan runs on a detached task with a small stack.
     private let maximumDepth = 32
+    /// Dotted keys allowed in one header or key; longer paths skip the line.
+    static let maximumKeysPerPath = 32
+    /// Total `[table]`/`[[array]]` headers parsed before giving up on the rest
+    /// of the file (recorded as one issue). Real agent configs have a handful.
+    static let maximumTableHeaders = 5_000
 
     private init(text: String) {
         scalars = Array(text.unicodeScalars)
@@ -92,6 +102,12 @@ struct MiniTOMLParser {
             let lineStart = index
             let succeeded: Bool
             if peek() == "[" {
+                guard headerCount < Self.maximumTableHeaders else {
+                    // Pathologically many tables: keep what was read, skip the rest.
+                    issues += 1
+                    break
+                }
+                headerCount += 1
                 succeeded = parseHeader()
             } else {
                 succeeded = parseKeyValueLine()
@@ -122,6 +138,9 @@ struct MiniTOMLParser {
             mutateTable(at: parentSteps) { table in
                 switch table[last] {
                 case .array(var items):
+                    // Drop the dictionary's reference first so the append is
+                    // in place; otherwise every `[[x]]` copies the whole array.
+                    table[last] = nil
                     items.append(.table([:]))
                     table[last] = .array(items)
                     appended = true
@@ -169,6 +188,9 @@ struct MiniTOMLParser {
         guard let value = parseValue(depth: 0) else { return false }
         guard expectEndOfLine() else { return false }
         let parentSteps = currentTable + keys.dropLast().map { PathStep.key($0) }
+        // Headers and keys are each capped, so this always holds; it keeps the
+        // recursion in `mutate` bounded even if those caps change.
+        guard parentSteps.count < maximumDepth * 4 else { return false }
         let last = keys[keys.count - 1]
         mutateTable(at: parentSteps) { table in
             table[last] = value
@@ -196,9 +218,15 @@ struct MiniTOMLParser {
         }
         guard case .key(let key) = first else { return }
         let rest = steps.dropFirst()
+        // Each branch takes the child out of its parent before mutating it, so
+        // the child's storage is uniquely referenced and edited in place.
+        // Writing through a copy made every line under a large table (or every
+        // `[[x]]` header) copy that whole table or array: quadratic time.
         if rest.first == .lastElement {
             guard case .array(var items)? = table[key], !items.isEmpty,
                   case .table(var inner) = items[items.count - 1] else { return }
+            table[key] = nil
+            items[items.count - 1] = .table([:])
             mutate(&inner, steps: rest.dropFirst(), body)
             items[items.count - 1] = .table(inner)
             table[key] = .array(items)
@@ -210,6 +238,7 @@ struct MiniTOMLParser {
         case nil: inner = [:]
         default: return // A scalar already lives here; ignore the conflicting write.
         }
+        table[key] = nil
         mutate(&inner, steps: rest, body)
         table[key] = .table(inner)
     }
@@ -222,6 +251,9 @@ struct MiniTOMLParser {
             skipInlineWhitespace()
             guard let key = parseKey() else { return nil }
             keys.append(key)
+            // Each key becomes a level of recursion in `mutate`; a header with
+            // thousands of dotted keys would overflow the scan task's stack.
+            guard keys.count <= Self.maximumKeysPerPath else { return nil }
             skipInlineWhitespace()
             if peek() == "." {
                 index += 1

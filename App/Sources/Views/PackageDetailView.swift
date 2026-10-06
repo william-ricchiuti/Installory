@@ -37,6 +37,12 @@ struct PackageDetailView: View {
                 noteDraft = coordinator.note(for: package.id) ?? ""
             }
         }
+        .onDisappear {
+            // Selecting another package replaces this view (`.id(pkg.id)`),
+            // which would drop an unsaved draft. Save it like Save Note does.
+            guard noteLoaded else { return }
+            coordinator.saveNoteDraftIfChanged(noteDraft, for: package.id)
+        }
     }
 
     // MARK: - Sections
@@ -218,6 +224,10 @@ struct PackageDetailView: View {
             if !(coordinator.isDemoMode || coordinator.provenanceCollection) {
                 // Provenance is off — show a subtle nudge rather than an empty section.
                 Text("Turn on install history in Settings \u{2192} Privacy to see how this was installed.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else if coordinator.installHistoryNeedsHomeAccess {
+                Text("Install history is on but needs read access to your home folder. Allow it in Settings \u{2192} Privacy.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             } else if let evidence = coordinator.provenanceByPackageId[package.id] {

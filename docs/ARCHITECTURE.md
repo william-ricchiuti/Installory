@@ -12,7 +12,11 @@ Everything below follows four rules. CI enforces the first two mechanically.
    learn everything from files on disk; a package manager that can only be
    queried by running it is a deliberate gap.
 2. **No networking.** No `URLSession`, `URLRequest`, `Network.framework` or
-   similar. Package descriptions are bundled (`descriptions.json`).
+   similar. Package descriptions are bundled (`descriptions.json`). The only
+   thing that may go online is the system rating dialog (`requestReview`),
+   which macOS runs, so user-facing copy says Installory "never sends your
+   data anywhere and has no internet code of its own", not "never connects to
+   the internet".
 3. **Read-only.** The app never installs, removes or edits anything. Cleanup is
    a generated script the user reads and runs. Writes happen only to the app's
    own database and to a destination the user picks in a Save panel.

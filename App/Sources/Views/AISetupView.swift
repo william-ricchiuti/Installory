@@ -241,6 +241,13 @@ private struct FindingsSection: View {
     }
 }
 
+// Accessibility crash guard (see commit a65277f): never put
+// `.textSelection(.enabled)` on text inside a view that has
+// `.accessibilityElement(children: .combine)` or `.accessibilityLabel` on it or
+// on an ancestor. SwiftUI recurses resolving the label and overflows the stack
+// when VoiceOver or another accessibility client hit-tests the screen. Only
+// text that is its own accessibility element (like the explanation below) may
+// stay selectable.
 private struct FindingRow: View {
     let finding: AgentConfigFinding
     let audit: AgentConfigAudit
@@ -527,6 +534,8 @@ private struct InstructionFileRow: View {
     let file: InstructionFile
     let projectPath: URL?
     @Environment(AppCoordinator.self) private var coordinator
+    /// Mirrors `FilePathRow`: once Finder can't show the file, say so.
+    @State private var revealFailed = false
 
     private var displayName: String {
         if let projectPath, file.path.path.hasPrefix(projectPath.path + "/") {
@@ -551,14 +560,18 @@ private struct InstructionFileRow: View {
             }
             .accessibilityElement(children: .combine)
             Spacer(minLength: 8)
-            Button("Reveal") {
-                _ = coordinator.folderAccess.revealGrantedItemInFinder(at: file.path)
+            Button(revealFailed ? "Not Available" : "Reveal") {
+                revealFailed = !coordinator.folderAccess.revealGrantedItemInFinder(at: file.path)
             }
             .buttonStyle(.link)
             .font(.caption)
-            .disabled(coordinator.isDemoMode || file.isBrokenSymlink)
-            .help("Show this file in Finder")
-            .accessibilityLabel("Reveal \(file.path.lastPathComponent) in Finder")
+            .disabled(coordinator.isDemoMode || file.isBrokenSymlink || revealFailed)
+            .help(revealFailed ? "Installory can\u{2019}t show this file in Finder" : "Show this file in Finder")
+            .accessibilityLabel(
+                revealFailed
+                    ? "\(file.path.lastPathComponent) is not available in Finder"
+                    : "Reveal \(file.path.lastPathComponent) in Finder"
+            )
         }
     }
 }

@@ -100,6 +100,96 @@ struct AgentConfigTOMLTests {
     }
 }
 
+@Suite("AgentConfig – TOML parser resource limits")
+struct AgentConfigTOMLLimitTests {
+    /// Parses on a thread with the same 512 KB stack as a detached task, so a
+    /// recursion regression crashes here rather than only in the app.
+    private func parseOnSmallStack(_ text: String) async -> MiniTOMLParser.Result {
+        await withCheckedContinuation { continuation in
+            let thread = Thread {
+                continuation.resume(returning: MiniTOMLParser.parse(text))
+            }
+            thread.stackSize = 512 * 1024
+            thread.start()
+        }
+    }
+
+    private func dottedPath(_ count: Int) -> String {
+        Array(repeating: "a", count: count).joined(separator: ".")
+    }
+
+    @Test("very long dotted headers and keys are skipped, not recursed into", arguments: [5_000, 20_000])
+    func longKeyPaths(count: Int) async {
+        let path = dottedPath(count)
+        let toml = """
+        before = 1
+        [\(path)]
+        x = 1
+        [[\(path)]]
+        \(path) = 1
+        [ok]
+        after = 2
+        """
+        let result = await parseOnSmallStack(toml)
+        #expect(result.issues == 3)
+        #expect(result.root["before"] == .integer(1))
+        #expect(result.root["ok"]?.tableValue?["after"] == .integer(2))
+        // `x = 1` lands at the root because its header was rejected.
+        #expect(result.root["a"] == nil)
+    }
+
+    @Test("a dotted path at the key limit still parses")
+    func keyPathAtLimit() async {
+        let path = dottedPath(MiniTOMLParser.maximumKeysPerPath)
+        let result = await parseOnSmallStack("[\(path)]\n\(path) = 1\n")
+        #expect(result.issues == 0)
+        #expect(result.root["a"] != nil)
+        let over = dottedPath(MiniTOMLParser.maximumKeysPerPath + 1)
+        #expect(await parseOnSmallStack("\(over) = 1").issues == 1)
+    }
+
+    @Test("many [[array]] headers finish quickly and stop at the header cap")
+    func manyArrayTables() async {
+        let toml = String(repeating: "[[a]]\nname = \"x\"\n", count: 50_000)
+        let clock = ContinuousClock()
+        var result: MiniTOMLParser.Result?
+        let elapsed = await clock.measure {
+            result = await parseOnSmallStack(toml)
+        }
+        #expect(elapsed < .seconds(1))
+        #expect(result?.issues == 1)
+        let items = result?.root["a"]?.arrayValue
+        #expect(items?.count == MiniTOMLParser.maximumTableHeaders)
+        #expect(items?.last?.tableValue?["name"] == .string("x"))
+    }
+
+    @Test("appending under the header cap is linear, not quadratic")
+    func arrayTablesUnderCap() async {
+        let count = MiniTOMLParser.maximumTableHeaders
+        let toml = String(repeating: "[[a.b]]\nname = \"x\"\nother = 1\n", count: count)
+        let clock = ContinuousClock()
+        var result: MiniTOMLParser.Result?
+        let elapsed = await clock.measure {
+            result = await parseOnSmallStack(toml)
+        }
+        #expect(elapsed < .seconds(1))
+        #expect(result?.issues == 0)
+        #expect(result?.root["a"]?.tableValue?["b"]?.arrayValue?.count == count)
+    }
+
+    @Test("many keys in one table stay fast")
+    func manyKeysInOneTable() async {
+        let toml = "[t]\n" + (0..<50_000).map { "k\($0) = \($0)" }.joined(separator: "\n")
+        let clock = ContinuousClock()
+        var result: MiniTOMLParser.Result?
+        let elapsed = await clock.measure {
+            result = await parseOnSmallStack(toml)
+        }
+        #expect(elapsed < .seconds(2))
+        #expect(result?.root["t"]?.tableValue?.count == 50_000)
+    }
+}
+
 @Suite("AgentConfig – secret masking")
 struct AgentConfigSecretMaskerTests {
     @Test("masking rule")

@@ -11,7 +11,7 @@ archive from the merged, clean `main` branch.
 
 ### What's New (draft for App Store Connect)
 
-Paste the text between the rules. 1,809 characters; the App Store limit
+Paste the text between the rules. 1,928 characters; the App Store limit
 is 4,000.
 
 ---
@@ -24,18 +24,18 @@ Installory is now a read-only checkup for a Mac you code on with AI.
 • Ask your AI assistant: copy a ready-made prompt for Claude Code, Codex or any assistant about a package, a duplicate, a cleanup, or a finding. Prompts ask the assistant to explain each step and wait for your OK.
 • Copy My Setup for My AI Assistant: give your assistant a short summary of your tools so its advice fits your Mac.
 • New first-run guide that explains which folders Installory opens and which it doesn't, and asks for your home folder (read only).
-• Install History (formerly provenance) shows which tools you installed and which Claude Code, Codex or opencode installed. Still optional and off by default.
+• Install History (formerly provenance) shows which tools you installed and which Claude Code, Codex or opencode installed. Still optional and off by default. If you turned it on before, Installory may ask you once to allow your home folder.
 • Clearer names: Possibly Unused, Saved Setup, Size on disk, and "Runs first" / "Hidden by another copy" for duplicates.
 • Safer cleanup scripts: commands run in a subshell so they can't change your Terminal session, and each script explains how to run it.
 • Fixes: tools in your home folder are found correctly in the sandbox, Command-F focuses search, and several layout and VoiceOver fixes.
 
-Installory still only reads. It never changes your Mac, never runs commands, and never connects to the internet.
+Installory still only reads. It never changes your Mac, never runs commands, and never sends your data anywhere. It has no internet code of its own.
 
 ---
 
 ### App Review note (draft)
 
-Installory is a fully offline, read-only inventory app. It scans only folders
+Installory is a read-only inventory app with no networking code of its own. It scans only folders
 explicitly granted by the user through read-only security-scoped bookmarks. It
 never executes generated cleanup or reinstall scripts. The user-selected
 read-write entitlement is used only when the user explicitly chooses an export
@@ -115,6 +115,12 @@ repository only through its own reviewed deploy.
   folder in onboarding, then confirm Agent CLIs, Skills, Editor Extensions,
   Cargo, pipx and AI Setup populate) has only been exercised in unsigned
   local builds. Do this before submitting.
+- **Upgraders with Install History on may be asked for the home folder once.**
+  1.5.0 checked the home grant against the sandbox container, so a 1.5.0
+  grant may not cover the real home folder. The stored toggle is left on;
+  Settings → Privacy shows "Paused: Installory needs read access to your home
+  folder" with a Grant button, and AI Installed / package details say access
+  is needed, until the user allows the real home folder.
 - **Scans take longer with a home grant.** The AI setup audit runs inside the
   scan, before install history, so the scanning indicator stays on while it
   reads AI tool settings. Fine for typical setups; revisit if reports say
@@ -128,8 +134,11 @@ repository only through its own reviewed deploy.
   show the 1.5.0 Home.
 - **App Store rating prompt.** The app now asks for a rating after a positive
   scan, at most once per version, never in sample-data mode or during
-  onboarding. This uses the system `requestReview` API; Installory itself
-  makes no network calls.
+  onboarding, and only after a scan the user started (never the automatic
+  launch scan) in which no package manager failed. This uses the system
+  `requestReview` API, which may contact the App Store; Installory itself
+  makes no network calls. This is why copy says "never sends your data
+  anywhere" rather than "never connects to the internet".
 
 ## Shipped: 1.5.0 (build 11, Aug 2026)
 

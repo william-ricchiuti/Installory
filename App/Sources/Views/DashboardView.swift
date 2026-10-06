@@ -53,16 +53,20 @@ struct DashboardView: View {
             Text("Your Mac\u{2019}s coding setup")
                 .font(.largeTitle.weight(.semibold))
                 .accessibilityAddTraits(.isHeader)
-            Text(subtitle)
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            // Re-evaluated every minute so "Last scanned 2 minutes ago" doesn't
+            // freeze while Home stays open.
+            TimelineView(.periodic(from: .now, by: 60)) { context in
+                Text(subtitle(now: context.date))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
-    private var subtitle: String {
+    private func subtitle(now: Date) -> String {
         if coordinator.isScanning { return "Scanning\u{2026}" }
         if coordinator.isDemoMode { return "Showing sample data" }
-        return coordinator.lastScanSummary ?? "Not scanned yet"
+        return coordinator.lastScanSummary(relativeTo: now) ?? "Not scanned yet"
     }
 
     private var shareSetupButton: some View {
@@ -247,8 +251,8 @@ private struct CheckupRowView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .combine)
 
-            if let title = row.actionTitle, let action = row.action {
-                Button(title) { perform(action) }
+            if let title = row.actionTitle, let command = row.command {
+                Button(title) { perform(command) }
                     .buttonStyle(.bordered)
                     .fixedSize()
             }
@@ -286,8 +290,8 @@ private struct CheckupRowView: View {
         }
     }
 
-    private func perform(_ action: CheckupAction) {
-        switch action {
+    private func perform(_ command: CheckupCommand) {
+        switch command {
         case .navigate(let destination):
             coordinator.sidebarSelection = destination
         case .grantHomeAccess:

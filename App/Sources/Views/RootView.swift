@@ -320,6 +320,8 @@ struct RootView: View {
         switch coordinator.sidebarSelection {
         case .snapshot(let id):
             SnapshotContentView(snapshotID: id)
+                // New identity per snapshot so its @State (loading, filters) resets.
+                .id(id)
         case .projects:
             ProjectsView()
         case .aiSetup:

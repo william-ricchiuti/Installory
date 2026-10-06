@@ -25,17 +25,52 @@ public struct CheckupRow: Sendable, Equatable, Hashable, Identifiable {
     public let headline: String
     /// One sentence a beginner understands.
     public let detail: String
-    /// Optional call to action, e.g. "Review duplicates".
-    public let actionTitle: String?
+    /// Optional call to action. The app switches on this, never on the title.
+    public let action: CheckupAction?
+
+    /// Button text for `action`, e.g. "Review duplicates".
+    public var actionTitle: String? { action?.title }
 
     public var id: CheckupArea { area }
 
-    public init(area: CheckupArea, status: CheckupStatus, headline: String, detail: String, actionTitle: String?) {
+    public init(area: CheckupArea, status: CheckupStatus, headline: String, detail: String, action: CheckupAction?) {
         self.area = area
         self.status = status
         self.headline = headline
         self.detail = detail
-        self.actionTitle = actionTitle
+        self.action = action
+    }
+}
+
+/// What a checkup row's button does. Typed so the app routes on the case,
+/// not on display text that copy edits could change.
+public enum CheckupAction: String, Sendable, Equatable, Hashable, CaseIterable {
+    case grantHomeAccess
+    case openSettings
+    case scan
+    case reviewDuplicates
+    case seePossiblyUnused
+    case seeThisWeeksInstalls
+    case reviewAITools
+    case seeAINotes
+    case reviewKeys
+    case reviewSpace
+    case freeUpSpace
+
+    public var title: String {
+        switch self {
+        case .grantHomeAccess: "Grant access"
+        case .openSettings: "Open Settings"
+        case .scan: "Scan now"
+        case .reviewDuplicates: "Review duplicates"
+        case .seePossiblyUnused: "See possibly unused"
+        case .seeThisWeeksInstalls: "See this week's installs"
+        case .reviewAITools: "Review AI tools"
+        case .seeAINotes: "See notes"
+        case .reviewKeys: "Review keys"
+        case .reviewSpace: "Review"
+        case .freeUpSpace: "Free up space"
+        }
     }
 }
 
@@ -146,7 +181,7 @@ public enum Checkup {
                 detail: homeMissing
                     ? "Grant access to your home folder in Settings so Installory can see the tools you've installed."
                     : "Run a scan to see the developer tools installed on this Mac.",
-                actionTitle: homeMissing ? "Grant access" : "Scan now"
+                action: homeMissing ? .grantHomeAccess : .scan
             )
         }
 
@@ -164,7 +199,7 @@ public enum Checkup {
                 detail: clashing == 1
                     ? "One tool is installed twice and the copies clash, so a command might run a different version than you expect."
                     : "\(clashing) tools are installed more than once and the copies clash, so some commands might run a different version than you expect.",
-                actionTitle: "Review duplicates"
+                action: .reviewDuplicates
             )
         }
 
@@ -174,7 +209,7 @@ public enum Checkup {
                 status: .good,
                 headline: headline,
                 detail: "Some tools are installed more than once, but none of the copies are clashing right now.",
-                actionTitle: "Review duplicates"
+                action: .reviewDuplicates
             )
         }
 
@@ -184,7 +219,7 @@ public enum Checkup {
                 status: .good,
                 headline: headline,
                 detail: "No clashes found, but tools in your home folder aren't counted until you grant access in Settings.",
-                actionTitle: "Grant access"
+                action: .grantHomeAccess
             )
         }
 
@@ -195,7 +230,7 @@ public enum Checkup {
             detail: input.reviewCandidateCount > 0
                 ? "Nothing is clashing, and \(count(input.reviewCandidateCount, "tool")) that nothing else needs can be reviewed when you have time."
                 : "Each tool is installed once, so nothing is fighting over which version runs.",
-            actionTitle: input.reviewCandidateCount > 0 ? "See review list" : nil
+            action: input.reviewCandidateCount > 0 ? .seePossiblyUnused : nil
         )
     }
 
@@ -207,7 +242,7 @@ public enum Checkup {
                     status: .unknown,
                     headline: "Not checked yet",
                     detail: "Grant access to your home folder in Settings so Installory can check your AI agent setup and MCP servers.",
-                    actionTitle: "Grant access"
+                    action: .grantHomeAccess
                 )
             }
             if input.coverageGaps.contains(.agentConfigCheckDisabled) {
@@ -216,7 +251,7 @@ public enum Checkup {
                     status: .unknown,
                     headline: "Not checked yet",
                     detail: "Turn on the AI tools check in Settings to look for broken skills and misconfigured MCP servers.",
-                    actionTitle: "Open Settings"
+                    action: .openSettings
                 )
             }
             // Nothing is blocking the check; it simply hasn't run yet (the AI
@@ -228,7 +263,7 @@ public enum Checkup {
                     status: .unknown,
                     headline: "\(count(aiWeek, "tool")) added by AI this week",
                     detail: "Your AI agent settings haven't been checked yet, but you can glance at what your agents installed this week.",
-                    actionTitle: "See this week's installs"
+                    action: .seeThisWeeksInstalls
                 )
             }
             return CheckupRow(
@@ -236,7 +271,7 @@ public enum Checkup {
                 status: .unknown,
                 headline: "Not checked yet",
                 detail: "Run a scan to check your AI agent settings and MCP servers.",
-                actionTitle: "Scan now"
+                action: .scan
             )
         }
 
@@ -249,7 +284,7 @@ public enum Checkup {
                 detail: findings.high > 0
                     ? "Some of your AI agent settings have problems that can stop tools from working or expose more than you intended."
                     : "Some of your AI agent settings could be tidied up so your tools behave predictably.",
-                actionTitle: "Review AI tools"
+                action: .reviewAITools
             )
         }
 
@@ -260,7 +295,7 @@ public enum Checkup {
                 status: .good,
                 headline: "\(count(aiWeek, "tool")) added by AI this week",
                 detail: "Your AI agent setup looks healthy; glance at this week's installs to make sure you meant to add them.",
-                actionTitle: "See this week's installs"
+                action: .seeThisWeeksInstalls
             )
         }
 
@@ -271,20 +306,20 @@ public enum Checkup {
             detail: findings.low > 0
                 ? "Your AI agent setup looks healthy, with a few small notes you can ignore for now."
                 : "Your AI agent setup and MCP servers look healthy.",
-            actionTitle: findings.low > 0 ? "See notes" : nil
+            action: findings.low > 0 ? .seeAINotes : nil
         )
     }
 
     static func secretsRow(_ input: CheckupInput) -> CheckupRow {
         guard let exposed = input.exposedSecretCount else {
             let detail: String
-            let action: String
+            let action: CheckupAction
             if input.coverageGaps.contains(.homeFolderNotGranted) {
                 detail = "Grant access to your home folder in Settings so Installory can look for API keys saved in plain text."
-                action = "Grant access"
+                action = .grantHomeAccess
             } else if input.coverageGaps.contains(.secretsCheckDisabled) {
                 detail = "Turn on the secrets check in Settings to look for API keys saved in plain text."
-                action = "Open Settings"
+                action = .openSettings
             } else {
                 // Not blocked, just not run yet: the check runs with a scan.
                 return CheckupRow(
@@ -292,10 +327,10 @@ public enum Checkup {
                     status: .unknown,
                     headline: "Not checked yet",
                     detail: "Run a scan to look for API keys written in plain text in your AI tools' settings.",
-                    actionTitle: "Scan now"
+                    action: .scan
                 )
             }
-            return CheckupRow(area: .secrets, status: .unknown, headline: "Not checked yet", detail: detail, actionTitle: action)
+            return CheckupRow(area: .secrets, status: .unknown, headline: "Not checked yet", detail: detail, action: action)
         }
 
         if exposed > 0 {
@@ -304,7 +339,7 @@ public enum Checkup {
                 status: .attention,
                 headline: count(exposed, "key") + " in AI tool settings",
                 detail: "Some API keys are written in plain text in your AI tools' settings, where other programs could read them; replace them with new keys and store them somewhere safer.",
-                actionTitle: "Review keys"
+                action: .reviewKeys
             )
         }
 
@@ -313,7 +348,7 @@ public enum Checkup {
             status: .good,
             headline: "No keys in AI tool settings",
             detail: "None of your AI tools' settings files have an API key written in plain text. (Installory doesn't check project .env files.)",
-            actionTitle: nil
+            action: nil
         )
     }
 
@@ -324,7 +359,7 @@ public enum Checkup {
                 status: .unknown,
                 headline: "Not measured yet",
                 detail: "Run a scan to see how much space your developer tools use.",
-                actionTitle: nil
+                action: nil
             )
         }
 
@@ -334,7 +369,7 @@ public enum Checkup {
                 status: .good,
                 headline: "Nothing to free up",
                 detail: "None of your tools are both unused by others and safe to remove right now.",
-                actionTitle: nil
+                action: nil
             )
         }
 
@@ -344,7 +379,7 @@ public enum Checkup {
                 status: .unknown,
                 headline: "\(count(input.safeToRemoveCount, "tool")) safe to remove",
                 detail: "Their sizes haven't been measured yet, so Installory can't say how much space you'd get back.",
-                actionTitle: "Review"
+                action: .reviewSpace
             )
         }
 
@@ -355,7 +390,7 @@ public enum Checkup {
             status: isLarge ? .attention : .good,
             headline: "\(size) can be freed",
             detail: "Removing \(count(input.safeToRemoveCount, "tool")) that nothing else needs would give back about \(size).",
-            actionTitle: "Free up space"
+            action: .freeUpSpace
         )
     }
 

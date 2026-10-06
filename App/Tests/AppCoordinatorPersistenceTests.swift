@@ -655,11 +655,61 @@ struct AppCoordinatorPersistenceTests {
                 .appendingPathComponent("Sources/AppCoordinator.swift"),
             encoding: .utf8
         )
-        let scanStart = try #require(source.range(of: "    func scan() async {"))
+        let scanStart = try #require(source.range(of: "    func scan(userInitiated: Bool = false) async {"))
         let scanBody = source[scanStart.upperBound...]
         let audit = try #require(scanBody.range(of: "await runAgentConfigAudit(grantedURLs: accessedURLs)"))
-        let review = try #require(scanBody.range(of: "requestReviewIfAppropriate()"))
+        let review = try #require(scanBody.range(of: "if userInitiated {\n            requestReviewIfAppropriate()"))
         #expect(audit.upperBound <= review.lowerBound)
+    }
+
+    @Test("Rating prompt never follows the automatic launch scan")
+    func reviewRequestOnlyAfterUserInitiatedScan() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/AppCoordinator.swift"),
+            encoding: .utf8
+        )
+        func body(of signature: String) throws -> Substring {
+            let start = try #require(source.range(of: signature))
+            let rest = source[start.upperBound...]
+            let end = rest.range(of: "\n    }\n")?.lowerBound ?? rest.endIndex
+            return rest[..<end]
+        }
+        let autoScan = try body(of: "    func autoScanIfNeeded() async {")
+        #expect(autoScan.contains("await scan()"))
+        #expect(!autoScan.contains("userInitiated: true"))
+        let refresh = try body(of: "    func refresh() async {")
+        #expect(refresh.contains("await scan(userInitiated: true)"))
+        // The only call to the prompt is the gated one inside scan().
+        #expect(source.components(separatedBy: "requestReviewIfAppropriate()").count == 3)
+    }
+
+    @Test("Views reset per item and keep relative times fresh")
+    func viewIdentityAndTimelineWiring() throws {
+        let views = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/Views")
+        let root = try String(contentsOf: views.appendingPathComponent("RootView.swift"), encoding: .utf8)
+        let snapshot = try #require(root.range(of: "SnapshotContentView(snapshotID: id)"))
+        #expect(root[snapshot.upperBound...].prefix(200).contains(".id(id)"))
+        let dashboard = try String(contentsOf: views.appendingPathComponent("DashboardView.swift"), encoding: .utf8)
+        #expect(dashboard.contains("TimelineView(.periodic(from: .now, by: 60))"))
+        #expect(dashboard.contains("lastScanSummary(relativeTo: now)"))
+        let detail = try String(contentsOf: views.appendingPathComponent("PackageDetailView.swift"), encoding: .utf8)
+        #expect(detail.contains("coordinator.saveNoteDraftIfChanged(noteDraft, for: package.id)"))
+    }
+
+    @Test("Last scanned text is computed relative to the given time")
+    func lastScanSummaryRelativeTime() {
+        let scannedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let soon = AppCoordinator.lastScanSummary(for: scannedAt, relativeTo: scannedAt.addingTimeInterval(60))
+        let later = AppCoordinator.lastScanSummary(for: scannedAt, relativeTo: scannedAt.addingTimeInterval(3 * 3600))
+        #expect(soon != later)
+        #expect(soon?.hasPrefix("Last scanned") == true)
+        #expect(AppCoordinator.lastScanSummary(for: nil, relativeTo: scannedAt) == nil)
     }
 
     @Test("APP-F2: Duplicates and Review Candidates expose cleanup controls")

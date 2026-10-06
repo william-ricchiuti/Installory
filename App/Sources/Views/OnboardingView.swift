@@ -30,6 +30,13 @@ struct OnboardingView: View {
             footer
         }
         .frame(minWidth: 520, idealWidth: 560, minHeight: 440, idealHeight: 500)
+        // Esc must not close the sheet: completion happens only via Skip,
+        // Start First Scan, or Explore with Sample Data.
+        .interactiveDismissDisabled()
+        .onExitCommand {
+            guard !isRequestingAccess, let destination = page.escapeDestination else { return }
+            go(to: destination)
+        }
     }
 
     // MARK: - Chrome
@@ -38,10 +45,11 @@ struct OnboardingView: View {
         HStack {
             OnboardingPageIndicator(page: page)
             Spacer()
+            // No `.cancelAction` shortcut: Esc goes Back (see `onExitCommand`)
+            // so a stray keypress can't permanently skip the guide.
             Button("Skip") { complete() }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
-                .keyboardShortcut(.cancelAction)
                 .help("Close this guide. You can show it again from Settings.")
                 .accessibilityHint("Closes the guide without scanning")
         }
@@ -151,9 +159,9 @@ struct OnboardingView: View {
                     detail: "It never installs, deletes or changes anything on your Mac."
                 )
                 OnboardingBullet(
-                    systemImage: "wifi.slash",
-                    title: "Works offline",
-                    detail: "It never connects to the internet. Nothing leaves your Mac."
+                    systemImage: "lock.shield",
+                    title: "Your data stays on your Mac",
+                    detail: "Installory never sends your data anywhere and has no internet code of its own."
                 )
                 OnboardingBullet(
                     systemImage: "doc.text.magnifyingglass",

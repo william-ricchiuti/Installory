@@ -1,34 +1,32 @@
 import InstalloryCore
 
-/// What a Home checkup row's button does.
-enum CheckupAction: Equatable {
+/// What the app does for a Home checkup row's button.
+enum CheckupCommand: Equatable {
     case navigate(SidebarSelection)
     case grantHomeAccess
     case openSettings
     case scan
 }
 
-extension CheckupRow {
-    /// The action behind `actionTitle`, or nil when the row has no button.
-    var action: CheckupAction? {
-        guard let actionTitle else { return nil }
-        switch actionTitle {
-        case "Grant access": return .grantHomeAccess
-        case "Open Settings": return .openSettings
-        case "Scan now": return .scan
-        default: break
-        }
-        switch area {
-        case .installedTools:
-            return actionTitle == "See review list" ? .navigate(.orphans) : .navigate(.duplicates)
-        case .aiTools:
-            return actionTitle == "See this week's installs" ? .navigate(.aiInstalled) : .navigate(.aiSetup)
-        case .space:
-            return .navigate(.diskUsage)
-        case .secrets:
-            return .navigate(.aiSetup)
+extension CheckupAction {
+    /// Routes the typed Core action; exhaustive, so a new case must be mapped.
+    var command: CheckupCommand {
+        switch self {
+        case .grantHomeAccess: .grantHomeAccess
+        case .openSettings: .openSettings
+        case .scan: .scan
+        case .reviewDuplicates: .navigate(.duplicates)
+        case .seePossiblyUnused: .navigate(.orphans)
+        case .seeThisWeeksInstalls: .navigate(.aiInstalled)
+        case .reviewAITools, .seeAINotes, .reviewKeys: .navigate(.aiSetup)
+        case .reviewSpace, .freeUpSpace: .navigate(.diskUsage)
         }
     }
+}
+
+extension CheckupRow {
+    /// The command behind the row's button, or nil when it has none.
+    var command: CheckupCommand? { action?.command }
 
     /// VoiceOver wording for the status indicator.
     var statusAccessibilityLabel: String {

@@ -4,8 +4,10 @@ import Foundation
 ///
 /// Pure: every input is passed in, so the gating is unit-testable. The app asks
 /// only after a positive moment — a finished real scan that either found space
-/// to free or a clean checkup — once the app has been used on a few different
-/// days, and at most once per app version. Never in demo mode or onboarding.
+/// to free or a clean checkup, with every manager read cleanly — once the app
+/// has been used on a few different days, and at most once per app version.
+/// Never in demo mode or onboarding, and never after the automatic launch scan
+/// (the caller asks only after a scan the user started).
 enum ReviewPromptPolicy {
     /// Distinct calendar days the app must have been launched on.
     static let minimumLaunchDays = 3
@@ -19,6 +21,8 @@ enum ReviewPromptPolicy {
         var distinctLaunchDays: Int
         var reclaimableBytes: Int64
         var checkupAllGood: Bool
+        /// No package manager failed or timed out during the scan.
+        var noScanProblems: Bool
         var currentVersion: String
         var lastPromptedVersion: String?
     }
@@ -27,6 +31,7 @@ enum ReviewPromptPolicy {
         guard !context.isDemoMode,
               context.onboardingCompleted,
               context.scanCompleted,
+              context.noScanProblems,
               context.distinctLaunchDays >= minimumLaunchDays,
               context.lastPromptedVersion != context.currentVersion else {
             return false
