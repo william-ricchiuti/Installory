@@ -282,7 +282,6 @@ private struct FindingRow: View {
                 if let fix = finding.suggestedFix {
                     Label {
                         Text(fix)
-                            .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     } icon: {
                         Image(systemName: "lightbulb")
@@ -447,7 +446,6 @@ private struct ServerEntryRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .truncationMode(.middle)
-                    .textSelection(.enabled)
             }
         }
         .accessibilityElement(children: .combine)
@@ -673,7 +671,6 @@ private struct PermissionProfileRow: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(rule)
                                 .font(.caption.monospaced())
-                                .textSelection(.enabled)
                             if let explanation {
                                 Text(explanation)
                                     .font(.caption)
@@ -722,7 +719,6 @@ private struct PermissionProfileRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .truncationMode(.middle)
-                    .textSelection(.enabled)
                     .padding(.leading, 26)
             }
         }
