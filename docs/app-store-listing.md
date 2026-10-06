@@ -1,4 +1,4 @@
-# App Store listing draft (next release, unreleased; proposed 1.6.0)
+# App Store listing draft (1.6.0)
 
 Draft for the owner to paste into App Store Connect. Nothing here is submitted.
 Character counts are Unicode characters (what App Store Connect counts),
