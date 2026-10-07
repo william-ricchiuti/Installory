@@ -71,6 +71,34 @@ private actor SnapshotListGate {
     }
 }
 
+/// Holds a snapshot capture open until the test releases it.
+private actor CaptureGate {
+    private var started = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiter: CheckedContinuation<Void, Never>?
+    private var released = false
+
+    func capture() async {
+        started = true
+        for waiter in startWaiters { waiter.resume() }
+        startWaiters.removeAll()
+        if !released {
+            await withCheckedContinuation { releaseWaiter = $0 }
+        }
+    }
+
+    func waitUntilStarted() async {
+        guard !started else { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        releaseWaiter?.resume()
+        releaseWaiter = nil
+    }
+}
+
 private actor CompletionProbe {
     private(set) var completed = false
 
@@ -453,6 +481,108 @@ struct AppCoordinatorPersistenceTests {
         #expect(result.snapshotFailed)
     }
 
+    @Test("QA-1.6: Skip Snapshot swaps the removal sheet to the script without a selection")
+    func skipSnapshotShowsScript() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let coordinator = AppCoordinator(dataDirectoryOverride: directory)
+        coordinator.snapshotBeforeRemoval = .ask
+        // The detail pane may lose its selection while a scan lands; the
+        // removal flow must not depend on it.
+        coordinator.selectedPackage = nil
+
+        await coordinator.requestRemoval([package()])
+        #expect(coordinator.pendingRemovalPackages?.map(\.id) == ["brew::ffmpeg"])
+        #expect(coordinator.isRemovalSheetPresented)
+        #expect(coordinator.cleanupResult == nil)
+
+        await coordinator.confirmRemoval(packages: [package()], takeSnapshot: false, remember: false)
+
+        let result = try #require(coordinator.cleanupResult)
+        #expect(result.script.scriptText.contains("ffmpeg"))
+        #expect(!result.snapshotTaken)
+        #expect(!result.snapshotFailed)
+        #expect(coordinator.pendingRemovalPackages == nil)
+        // Still one presented sheet, now showing the script.
+        #expect(coordinator.isRemovalSheetPresented)
+        #expect(coordinator.snapshotBeforeRemoval == .ask)
+
+        coordinator.dismissRemovalSheet()
+        #expect(coordinator.cleanupResult == nil)
+        #expect(!coordinator.isRemovalSheetPresented)
+    }
+
+    @Test("QA-1.6: Take Snapshot keeps the removal sheet up until the script exists")
+    func takeSnapshotKeepsSheetPresented() async throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let gate = CaptureGate()
+        let coordinator = AppCoordinator(
+            dataDirectoryOverride: directory,
+            snapshotCaptureOverride: { _, _, _ in
+                await gate.capture()
+                throw SnapshotCaptureTestError()
+            }
+        )
+        coordinator.snapshotBeforeRemoval = .ask
+        await coordinator.requestRemoval([package()])
+
+        let confirm = Task { @MainActor in
+            await coordinator.confirmRemoval(packages: [package()], takeSnapshot: true, remember: false)
+        }
+        await gate.waitUntilStarted()
+
+        // Mid-capture: the question stays on screen (no dismissal gap) and
+        // cannot be cancelled or dismissed out from under the capture.
+        #expect(coordinator.isPreparingRemovalScript)
+        #expect(coordinator.isRemovalSheetPresented)
+        coordinator.cancelRemoval()
+        coordinator.dismissRemovalSheet()
+        #expect(coordinator.pendingRemovalPackages != nil)
+
+        await gate.release()
+        await confirm.value
+
+        let result = try #require(coordinator.cleanupResult)
+        #expect(result.snapshotFailed)
+        #expect(!coordinator.isPreparingRemovalScript)
+        #expect(coordinator.pendingRemovalPackages == nil)
+        #expect(coordinator.isRemovalSheetPresented)
+    }
+
+    @Test("QA-1.6: removal flow uses one sheet; install history runs after the scan and is cancellable")
+    func removalSheetAndInstallHistoryWiring() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources")
+        let root = try String(
+            contentsOf: sources.appendingPathComponent("Views/RootView.swift"),
+            encoding: .utf8
+        )
+        #expect(root.components(separatedBy: "CleanupScriptSheetView(result:").count == 2)
+        #expect(root.contains("coordinator.isRemovalSheetPresented"))
+        #expect(!root.contains("get: { coordinator.pendingRemovalPackages != nil }"))
+
+        let coordinator = try String(
+            contentsOf: sources.appendingPathComponent("AppCoordinator.swift"),
+            encoding: .utf8
+        )
+        // scan(), rescan(manager:) and Clear History each stop a running
+        // collection before touching inventory or evidence.
+        #expect(coordinator.components(separatedBy: "await cancelInstallHistoryCollection()").count == 4)
+        #expect(coordinator.contains("startInstallHistoryCollection()"))
+        #expect(coordinator.contains("cache: fileCache"))
+        // rescan(manager:) restarts the collection it cancelled.
+        let rescan = try #require(coordinator.range(of: "func rescan(manager: PackageManager) async {"))
+        #expect(coordinator[rescan.upperBound...].prefix(700).contains("defer { startInstallHistoryCollection() }"))
+        // Turning history off, revoking, demo mode and Clear History close the
+        // cache-write gate synchronously before anything else.
+        #expect(coordinator.contains("if !provenanceCollection { stopInstallHistoryCollection() }"))
+        #expect(coordinator.components(separatedBy: "stopInstallHistoryCollection()").count >= 5)
+        #expect(coordinator.contains("ProvenanceCollectionOutcome.merged("))
+    }
+
     @Test("APP25-007: failed automatic first snapshot remains retryable")
     func failedFirstScanSnapshotDoesNotSetPreference() async throws {
         let defaults = UserDefaults.standard
@@ -712,6 +842,12 @@ struct AppCoordinatorPersistenceTests {
         let dashboard = try String(contentsOf: views.appendingPathComponent("DashboardView.swift"), encoding: .utf8)
         #expect(dashboard.contains("TimelineView(.periodic(from: .now, by: 60))"))
         #expect(dashboard.contains("lastScanSummary(relativeTo: now)"))
+        let sidebar = try String(contentsOf: views.appendingPathComponent("SidebarView.swift"), encoding: .utf8)
+        #expect(sidebar.contains("TimelineView(.periodic(from: .now, by: 30))"))
+        #expect(sidebar.contains("lastScanSummary(relativeTo: context.date)"))
+        let aiSetup = try String(contentsOf: views.appendingPathComponent("AISetupView.swift"), encoding: .utf8)
+        #expect(aiSetup.contains("TimelineView(.periodic(from: .now, by: 30))"))
+        #expect(aiSetup.contains("checkedLine(now: context.date)"))
         let detail = try String(contentsOf: views.appendingPathComponent("PackageDetailView.swift"), encoding: .utf8)
         #expect(detail.contains("coordinator.saveNoteDraftIfChanged(noteDraft, for: package.id)"))
     }

@@ -396,7 +396,7 @@ struct DetectedInstall: Sendable, Equatable {
     let qualifierHint: InstallQualifierHint?
 }
 
-enum InstallQualifierHint: Sendable, Hashable {
+enum InstallQualifierHint: Sendable, Hashable, Codable {
     /// The command names an absolute interpreter path.
     case exactPath(String)
     /// The command names a versioned interpreter executable without an absolute path.

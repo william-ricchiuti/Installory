@@ -319,11 +319,27 @@ struct SidebarView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            if let summary = coordinator.lastScanSummary {
-                Text(summary)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            if coordinator.isCollectingInstallHistory {
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Updating install history\u{2026}")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
+            }
+
+            // Re-evaluated every 30 seconds so "Last scanned 1 minute ago"
+            // doesn't freeze while the window stays open.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                if let summary = coordinator.lastScanSummary(relativeTo: context.date) {
+                    Text(summary)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
 
             addFolderMenu {

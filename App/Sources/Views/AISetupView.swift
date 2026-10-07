@@ -46,19 +46,25 @@ struct AISetupView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if let checkedLine {
-                Text(checkedLine)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+            // Re-evaluated every 30 seconds so "Last checked 1 minute ago"
+            // doesn't freeze while AI Setup stays open.
+            TimelineView(.periodic(from: .now, by: 30)) { context in
+                if let line = checkedLine(now: context.date) {
+                    Text(line)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
     }
 
-    private var checkedLine: String? {
+    private func checkedLine(now: Date) -> String? {
         if coordinator.isDemoMode { return "Showing sample data" }
         if coordinator.isScanning { return "Checking\u{2026}" }
         guard coordinator.aiSetupAudit != nil, let date = coordinator.agentConfigAuditedAt else { return nil }
-        return "Last checked \(date.formatted(.relative(presentation: .named)))"
+        let formatter = RelativeDateTimeFormatter()
+        formatter.dateTimeStyle = .named
+        return "Last checked \(formatter.localizedString(for: date, relativeTo: now))"
     }
 
     @ViewBuilder

@@ -39,6 +39,43 @@ enum UTF8LineReader {
         }
     }
 
+    /// Visits raw line bytes without decoding, so callers can run a cheap
+    /// byte prefilter and decode only lines that may matter. Separators match
+    /// ``forEachLine(in:_:)``: `\n`, `\r` and `\r\n`. The buffer is valid only
+    /// for the duration of `body`. Returning `false`, or task cancellation,
+    /// stops the walk.
+    static func forEachLineBuffer(
+        in data: Data,
+        _ body: (UnsafeRawBufferPointer) -> Bool
+    ) {
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            let count = raw.count
+            var lineStart = 0
+            var index = 0
+            while index < count {
+                let byte = raw[index]
+                guard byte == 0x0A || byte == 0x0D else {
+                    index += 1
+                    continue
+                }
+                if Task.isCancelled { return }
+                if !body(UnsafeRawBufferPointer(rebasing: raw[lineStart..<index])) { return }
+                index += 1
+                if byte == 0x0D, index < count, raw[index] == 0x0A {
+                    index += 1
+                }
+                lineStart = index
+            }
+            guard !Task.isCancelled else { return }
+            _ = body(UnsafeRawBufferPointer(rebasing: raw[lineStart..<count]))
+        }
+    }
+
+    /// Strict UTF-8 decode of one line buffer; nil for invalid bytes.
+    static func decode(_ bytes: UnsafeRawBufferPointer) -> String? {
+        String(bytes: bytes, encoding: .utf8)
+    }
+
     private static func decodeLine(_ bytes: Data.SubSequence) -> String? {
         String(data: Data(bytes), encoding: .utf8)
     }

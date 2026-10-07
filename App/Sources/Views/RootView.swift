@@ -281,23 +281,21 @@ struct RootView: View {
             // package that can produce a removal command.
             coordinator.reconcileCleanupSelectionForCurrentSidebar()
         }
+        // One sheet for the whole removal flow: the snapshot question, then the
+        // script, swapped in place. Two sibling sheets dropped the script when
+        // "Skip Snapshot" dismissed one and presented the other in one update.
         .sheet(isPresented: Binding(
-            get: { coordinator.cleanupResult != nil },
-            set: { if !$0 { coordinator.cleanupResult = nil } }
+            get: { coordinator.isRemovalSheetPresented },
+            set: { if !$0 { coordinator.dismissRemovalSheet() } }
         )) {
-            if let result = coordinator.cleanupResult {
-                CleanupScriptSheetView(result: result)
-                    .environment(coordinator)
+            Group {
+                if let result = coordinator.cleanupResult {
+                    CleanupScriptSheetView(result: result)
+                } else if let packages = coordinator.pendingRemovalPackages {
+                    SnapshotChoiceSheet(packages: packages)
+                }
             }
-        }
-        .sheet(isPresented: Binding(
-            get: { coordinator.pendingRemovalPackages != nil },
-            set: { if !$0 { coordinator.cancelRemoval() } }
-        )) {
-            if let packages = coordinator.pendingRemovalPackages {
-                SnapshotChoiceSheet(packages: packages)
-                    .environment(coordinator)
-            }
+            .environment(coordinator)
         }
         .sheet(isPresented: Binding(
             get: { !coordinator.onboardingCompleted },

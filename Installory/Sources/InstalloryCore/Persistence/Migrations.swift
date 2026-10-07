@@ -25,6 +25,7 @@ public enum Migrations {
         migrator.registerMigration("v2_package_artifact_paths", migrate: v2PackageArtifactPaths)
         migrator.registerMigration("v3_package_user_state", migrate: v3PackageUserState)
         migrator.registerMigration("v4_package_summary", migrate: v4PackageSummary)
+        migrator.registerMigration("v5_provenance_file_cache", migrate: v5ProvenanceFileCache)
         return migrator
     }
 
@@ -117,5 +118,23 @@ public enum Migrations {
     /// managers without such metadata are unaffected.
     private static func v4PackageSummary(_ db: GRDB.Database) throws {
         try db.execute(sql: "ALTER TABLE packages ADD COLUMN summary TEXT")
+    }
+
+    /// Per-session-file cache of extracted install records so unchanged agent
+    /// logs are not re-parsed every scan. `payload` holds JSON of records whose
+    /// text was already redacted — never raw log lines. Keyed by collector
+    /// source and file path; `size` + `modified_at` identify the file version.
+    /// Cleared together with `provenance_evidence` by ProvenanceDAO.deleteAll.
+    private static func v5ProvenanceFileCache(_ db: GRDB.Database) throws {
+        try db.execute(sql: """
+            CREATE TABLE provenance_file_cache (
+                source      TEXT NOT NULL,
+                path        TEXT NOT NULL,
+                size        INTEGER NOT NULL,
+                modified_at REAL NOT NULL,
+                payload     BLOB NOT NULL,
+                PRIMARY KEY (source, path)
+            )
+            """)
     }
 }
