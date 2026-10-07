@@ -407,6 +407,128 @@ struct ProvenanceSessionScanTests {
         #expect(fromCache[packages[1].id]?.codexContext == nil)
     }
 
+    // MARK: - Review follow-ups
+
+    @Test("A cancelled run flushes fully parsed files but evicts nothing")
+    func cancelledRunFlushesParsedFiles() async throws {
+        let (base, urls) = threeCodexDays()
+        let cache = InMemoryProvenanceFileCacheStore()
+        let stale = codexURL(day: "2024/01/01", name: "deleted")
+        try cache.update(
+            source: .codex,
+            upserting: [ProvenanceFileCacheEntry(path: stale.path, size: 1, modifiedAt: 1, payload: Data("[]".utf8))],
+            removingPaths: []
+        )
+        // Reading the second (older) file cancels the run mid-parse.
+        let provider = CancelOnReadProvider(base: base, trigger: urls[1])
+        let (_, report) = await Task.detached {
+            CodexLogCollector(directoryAccess: provider, homeDirectory: home, cache: cache).collectWithReport()
+        }.value
+
+        #expect(report.stopReason == .cancelled)
+        let entries = try cache.entries(for: .codex)
+        #expect(entries[urls[2].path] != nil)   // newest, parsed before cancel
+        #expect(entries[urls[1].path] == nil)   // interrupted, never cached
+        #expect(entries[stale.path] != nil)     // no eviction on cancel
+    }
+
+    @Test("A closed gate drops every later cache write")
+    func gatedStoreDropsWritesAfterClose() throws {
+        let base = InMemoryProvenanceFileCacheStore()
+        let gate = GatedProvenanceFileCacheStore(base: base)
+        let (provider, _) = threeCodexDays()
+        _ = CodexLogCollector(directoryAccess: provider, homeDirectory: home, cache: gate).collect()
+        #expect(try base.entries(for: .codex).count == 3)
+        try base.removeAll()
+        gate.close()
+        _ = CodexLogCollector(directoryAccess: provider, homeDirectory: home, cache: gate).collect()
+        #expect(try base.entries(for: .codex).isEmpty)
+    }
+
+    @Test("Cached interpreter hints never contain the real home path, and scope still matches")
+    func cachedHintsAreHomeRedacted() throws {
+        let realHome = UserHome.directory.standardizedFileURL.path
+        let venv = realHome + "/.pyenv/versions/3.12.1/bin/python3.12"
+        let url = codexURL(day: "2026/03/01", name: "pyenv")
+        let provider = InMemoryDirectoryAccessProvider.make { builder in
+            builder.addFile(
+                at: url,
+                data: Data(codexSession(id: "pyenv", command: "\(venv) -m pip install rich", at: t0).utf8),
+                modificationDate: t0
+            )
+        }
+        let cache = InMemoryProvenanceFileCacheStore()
+        _ = CodexLogCollector(directoryAccess: provider, homeDirectory: home, cache: cache).collect()
+        let payload = try #require(try cache.entries(for: .codex)[url.path]?.payload)
+        #expect(!String(decoding: payload, as: UTF8.self).contains(realHome))
+
+        let packages = [
+            makePackage("rich", manager: .pip, qualifier: venv, installedAt: t0),
+            makePackage("rich", manager: .pip, qualifier: realHome + "/.pyenv/versions/3.11.0/bin/python3.11", installedAt: t0),
+        ]
+        let evidence = ProvenanceCollector(
+            shellCollector: ShellHistoryCollector(directoryAccess: InMemoryDirectoryAccessProvider.make { _ in }, homeDirectory: home),
+            claudeCodeCollector: ClaudeCodeLogCollector(directoryAccess: InMemoryDirectoryAccessProvider.make { _ in }, homeDirectory: home),
+            codexCollector: CodexLogCollector(directoryAccess: provider, homeDirectory: home, cache: cache),
+            opencodeCollector: OpenCodeLogCollector(databasePath: home.appendingPathComponent("none.db"))
+        ).collect(packages: packages)
+        let byId = Dictionary(uniqueKeysWithValues: evidence.map { ($0.packageId, $0) })
+        #expect(byId[packages[0].id]?.codexContext != nil)
+        #expect(byId[packages[1].id]?.codexContext == nil)
+    }
+
+    @Test("Outcome is complete only when no collector was budget-stopped")
+    func outcomeCompleteness() {
+        let (provider, _) = threeCodexDays()
+        func outcome(_ limits: ProvenanceCollectionLimits) -> ProvenanceCollectionOutcome {
+            ProvenanceCollector(
+                shellCollector: ShellHistoryCollector(directoryAccess: InMemoryDirectoryAccessProvider.make { _ in }, homeDirectory: home),
+                claudeCodeCollector: ClaudeCodeLogCollector(directoryAccess: InMemoryDirectoryAccessProvider.make { _ in }, homeDirectory: home),
+                codexCollector: CodexLogCollector(directoryAccess: provider, homeDirectory: home, limits: limits),
+                opencodeCollector: OpenCodeLogCollector(databasePath: home.appendingPathComponent("none.db"))
+            ).collectWithOutcome(packages: [makePackage("wget", installedAt: t0)])
+        }
+        #expect(outcome(.default).isComplete)
+        #expect(!outcome(ProvenanceCollectionLimits(maximumSessionBytesPerScan: 1)).isComplete)
+    }
+
+    @Test("A partial run keeps earlier attribution; a complete run or removal replaces it")
+    func mergeKeepsPriorAttributionAfterPartialRun() {
+        func evidence(_ id: String, codex: Bool) -> ProvenanceEvidence {
+            ProvenanceEvidence(
+                packageId: id,
+                fsInstallTime: t0,
+                fsInstallTimeSource: "INSTALL_RECEIPT.json",
+                installCommand: nil,
+                claudeCodeContext: nil,
+                codexContext: codex ? ProvenanceEvidence.CodexContext(
+                    sessionId: "old", projectPath: "~/p", sessionSummary: nil,
+                    firstUserMessage: nil, bashInvocation: "brew install \(id)", timestamp: t0
+                ) : nil,
+                nearbyProjects: [],
+                coInstalledWithin1h: [],
+                overallConfidence: codex ? .high : .low,
+                collectedAt: t0
+            )
+        }
+        let previous = [
+            "kept": evidence("kept", codex: true),
+            "removed": evidence("removed", codex: true),
+            "refreshed": evidence("refreshed", codex: true),
+        ]
+        let fresh = [evidence("kept", codex: false), evidence("refreshed", codex: true), evidence("new", codex: false)]
+
+        let partial = ProvenanceCollectionOutcome.merged(previous: previous, fresh: fresh, isComplete: false)
+        let byId = Dictionary(uniqueKeysWithValues: partial.map { ($0.packageId, $0) })
+        #expect(Set(byId.keys) == ["kept", "refreshed", "new"])   // removed package dropped
+        #expect(byId["kept"]?.codexContext?.sessionId == "old")
+        #expect(byId["kept"]?.overallConfidence == .high)
+        #expect(byId["new"]?.codexContext == nil)
+
+        let complete = ProvenanceCollectionOutcome.merged(previous: previous, fresh: fresh, isComplete: true)
+        #expect(complete.first { $0.packageId == "kept" }?.codexContext == nil)
+    }
+
     // MARK: - Persistence
 
     @Test("Database cache round-trips entries and Clear History (deleteAll) erases them")
@@ -455,4 +577,19 @@ private final class SteppingClock: @unchecked Sendable {
         current = current.addingTimeInterval(step)
         return value
     }
+}
+
+/// Cancels the calling task (the collector run) when `trigger` is read.
+private struct CancelOnReadProvider: DirectoryAccessProvider, Sendable {
+    let base: InMemoryDirectoryAccessProvider
+    let trigger: URL
+
+    func contentsOfDirectory(at url: URL) throws -> [URL] { try base.contentsOfDirectory(at: url) }
+    func data(contentsOf url: URL) throws -> Data {
+        if url == trigger { withUnsafeCurrentTask { $0?.cancel() } }
+        return try base.data(contentsOf: url)
+    }
+    func fileExists(at url: URL) -> Bool { base.fileExists(at: url) }
+    func modificationDate(at url: URL) -> Date? { base.modificationDate(at: url) }
+    func metadata(at url: URL) throws -> FileSystemItemMetadata { try base.metadata(at: url) }
 }

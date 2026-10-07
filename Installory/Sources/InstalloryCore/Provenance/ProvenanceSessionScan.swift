@@ -171,6 +171,47 @@ public protocol ProvenanceFileCacheStore: Sendable {
     func removeAll() throws
 }
 
+/// Wraps a store so one collection run's writes can be shut off at once.
+///
+/// The app closes the gate when install history is turned off, access is
+/// revoked, demo mode starts or history is cleared. `close()` waits for any
+/// write in progress, and every later write is dropped, so a cancelled run
+/// can never repopulate the cache afterwards.
+public final class GatedProvenanceFileCacheStore: ProvenanceFileCacheStore, @unchecked Sendable {
+    private let base: any ProvenanceFileCacheStore
+    private let lock = NSLock()
+    private var isClosed = false
+
+    public init(base: any ProvenanceFileCacheStore) {
+        self.base = base
+    }
+
+    public func close() {
+        lock.withLock { isClosed = true }
+    }
+
+    public var closed: Bool { lock.withLock { isClosed } }
+
+    public func entries(for source: ProvenanceLogSource) throws -> [String: ProvenanceFileCacheEntry] {
+        try base.entries(for: source)
+    }
+
+    public func update(
+        source: ProvenanceLogSource,
+        upserting entries: [ProvenanceFileCacheEntry],
+        removingPaths paths: [String]
+    ) throws {
+        try lock.withLock {
+            guard !isClosed else { return }
+            try base.update(source: source, upserting: entries, removingPaths: paths)
+        }
+    }
+
+    public func removeAll() throws {
+        try base.removeAll()
+    }
+}
+
 /// In-memory store for tests and previews.
 public final class InMemoryProvenanceFileCacheStore: ProvenanceFileCacheStore, @unchecked Sendable {
     private let lock = NSLock()
@@ -306,12 +347,12 @@ struct ProvenanceFileCacheSession<Record: Codable> {
 
     /// Persists new entries and evicts entries whose files no longer exist.
     /// Entries not visited this run (budget stop) are kept while the file exists.
-    func finish(directoryAccess: any DirectoryAccessProvider) {
+    func finish(directoryAccess: any DirectoryAccessProvider, evictMissingFiles: Bool = true) {
         guard let store else { return }
-        let removed = existing.keys.filter { path in
+        let removed = evictMissingFiles ? existing.keys.filter { path in
             !visited.contains(path)
                 && !directoryAccess.fileExists(at: URL(fileURLWithPath: path))
-        }
+        } : []
         try? store.update(source: source, upserting: upserts, removingPaths: removed)
     }
 }

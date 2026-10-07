@@ -43,21 +43,29 @@ public struct ProvenanceCollector: Sendable {
     /// This method is synchronous; file I/O occurs inside both sub-collectors.
     /// Dispatch to a background thread when calling from an actor or async context.
     public func collect(packages: [Package]) -> [ProvenanceEvidence] {
-        guard !Task.isCancelled else { return [] }
+        collectWithOutcome(packages: packages).evidence
+    }
+
+    /// Like ``collect(packages:)`` and also says whether the agent-log
+    /// collectors covered every session file. A budget-stopped run is not
+    /// complete: older logs were not read, so absence of attribution in it
+    /// is not evidence that an older attribution was wrong.
+    public func collectWithOutcome(packages: [Package]) -> ProvenanceCollectionOutcome {
+        guard !Task.isCancelled else { return .cancelled }
         let shellRecords = shellCollector.collect()
-        guard !Task.isCancelled else { return [] }
-        let claudeRecords = claudeCodeCollector.collect()
-        guard !Task.isCancelled else { return [] }
-        let codexRecords = codexCollector.collect()
-        guard !Task.isCancelled else { return [] }
+        guard !Task.isCancelled else { return .cancelled }
+        let (claudeRecords, claudeReport) = claudeCodeCollector.collectWithReport()
+        guard !Task.isCancelled else { return .cancelled }
+        let (codexRecords, codexReport) = codexCollector.collectWithReport()
+        guard !Task.isCancelled else { return .cancelled }
         let opencodeRecords = opencodeCollector.collect()
-        guard !Task.isCancelled else { return [] }
+        guard !Task.isCancelled else { return .cancelled }
 
         // Bucket shell records by manager and normalized name. Scope hints are
         // retained separately so unqualified records can remain fallback evidence.
         var shellByKey: [PackageKey: [ScopedCandidate<ProvenanceEvidence.InstallCommandRecord>]] = [:]
         for record in shellRecords where record.timestamp != nil {
-            guard !Task.isCancelled else { return [] }
+            guard !Task.isCancelled else { return .cancelled }
             for detection in detector.detectInstallations(record.command) {
                 let key = PackageKey(manager: detection.manager, name: detection.name)
                 shellByKey[key, default: []].append(ScopedCandidate(
@@ -81,12 +89,12 @@ public struct ProvenanceCollector: Sendable {
             return (id: pkg.id, time: t.timeIntervalSince1970)
         }
         let coInstalledByPackageId = coInstalledSummaries(from: timedPackages)
-        guard !Task.isCancelled else { return [] }
+        guard !Task.isCancelled else { return .cancelled }
 
         var evidence: [ProvenanceEvidence] = []
         evidence.reserveCapacity(packages.count)
         for package in packages {
-            guard !Task.isCancelled else { return [] }
+            guard !Task.isCancelled else { return .cancelled }
             evidence.append(buildEvidence(
                 for: package,
                 shellByKey: shellByKey,
@@ -96,7 +104,10 @@ public struct ProvenanceCollector: Sendable {
                 coInstalled: coInstalledByPackageId[package.id] ?? .empty
             ))
         }
-        return evidence
+        return ProvenanceCollectionOutcome(
+            evidence: evidence,
+            isComplete: claudeReport.stopReason == .completed && codexReport.stopReason == .completed
+        )
     }
 
     // MARK: - Per-package evidence assembly
@@ -177,7 +188,7 @@ public struct ProvenanceCollector: Sendable {
         let candidates = buckets[key] ?? []
         let qualified = candidates.compactMap { candidate -> Value? in
             guard let hint = candidate.qualifierHint,
-                  hint.matches(package.qualifier) else { return nil }
+                  hint.matches(package.qualifier, redactor: redactor) else { return nil }
             return candidate.value
         }
         let unqualified = candidates.compactMap { candidate in
@@ -275,6 +286,28 @@ public struct ProvenanceCollector: Sendable {
             hints.insert(detection.qualifierHint)
         }
         return hints.isEmpty ? [nil] : hints
+    }
+
+    /// Hints safe to persist in the file cache: exact interpreter paths go
+    /// through the same home-path redaction as evidence (`/Users/me/…` → `~/…`).
+    /// ``InstallQualifierHint/matches(_:redactor:)`` compares such a hint with
+    /// the equally redacted package qualifier, so scope matching still works.
+    static func cacheableQualifierHints(
+        command: String,
+        manager: PackageManager,
+        packageName: String,
+        detector: InstallCommandDetector,
+        redactor: ProvenanceRedactor
+    ) -> Set<InstallQualifierHint?> {
+        Set(agentQualifierHints(
+            command: command,
+            manager: manager,
+            packageName: packageName,
+            detector: detector
+        ).map { hint -> InstallQualifierHint? in
+            guard case .exactPath(let path)? = hint else { return hint }
+            return .exactPath(InstallQualifierHint.redactedExactPath(path, redactor: redactor))
+        })
     }
 
     private func nearestShell(
@@ -407,12 +440,16 @@ private struct CandidateGroups<Value> {
 }
 
 private extension InstallQualifierHint {
-    func matches(_ packageQualifier: String?) -> Bool {
+    func matches(_ packageQualifier: String?, redactor: ProvenanceRedactor) -> Bool {
         guard let packageQualifier else { return false }
 
         switch self {
         case .exactPath(let commandPath):
             guard packageQualifier.hasPrefix("/") else { return false }
+            if !commandPath.hasPrefix("/") {
+                // A cached hint whose home prefix was redacted to `~`.
+                return commandPath == Self.redactedExactPath(packageQualifier, redactor: redactor)
+            }
             return standardizedPath(commandPath) == standardizedPath(packageQualifier)
         case .executableName(let commandName):
             return URL(fileURLWithPath: packageQualifier).lastPathComponent == commandName
@@ -465,4 +502,60 @@ extension InstalledByCodex: AgentInstallRecord {
 extension InstalledByOpenCode: AgentInstallRecord {
     var bashInvocation: String { context.bashInvocation }
     var timestamp: Date? { context.timestamp }
+}
+
+extension InstallQualifierHint {
+    /// Standardizes an absolute interpreter path, then applies the evidence
+    /// path redaction. Used for cached hints and for the qualifier they are
+    /// compared with, so both sides are transformed identically.
+    static func redactedExactPath(_ path: String, redactor: ProvenanceRedactor) -> String {
+        redactor.redactPath(URL(fileURLWithPath: path).standardizedFileURL.path)
+    }
+}
+
+/// Result of one aggregate provenance run.
+public struct ProvenanceCollectionOutcome: Sendable {
+    public let evidence: [ProvenanceEvidence]
+    /// True when every agent session file was covered (no budget or record
+    /// limit stop, not cancelled).
+    public let isComplete: Bool
+
+    public init(evidence: [ProvenanceEvidence], isComplete: Bool) {
+        self.evidence = evidence
+        self.isComplete = isComplete
+    }
+
+    static let cancelled = ProvenanceCollectionOutcome(evidence: [], isComplete: false)
+
+    /// Combines a run's evidence with what was known before.
+    ///
+    /// Only packages in `fresh` (the current inventory) are kept, so evidence
+    /// for removed packages is dropped. A complete run replaces everything.
+    /// After a partial (budget-stopped) run, a package whose fresh evidence has
+    /// no attribution (no install command, no agent context) keeps its earlier
+    /// attributed evidence, because the logs that held it may simply not have
+    /// been read this time.
+    public static func merged(
+        previous: [String: ProvenanceEvidence],
+        fresh: [ProvenanceEvidence],
+        isComplete: Bool
+    ) -> [ProvenanceEvidence] {
+        guard !isComplete else { return fresh }
+        return fresh.map { evidence in
+            guard !evidence.hasAttribution,
+                  let prior = previous[evidence.packageId],
+                  prior.hasAttribution else { return evidence }
+            return prior
+        }
+    }
+}
+
+extension ProvenanceEvidence {
+    /// True when any signal says how the package was installed.
+    var hasAttribution: Bool {
+        installCommand != nil
+            || claudeCodeContext != nil
+            || codexContext != nil
+            || opencodeContext != nil
+    }
 }

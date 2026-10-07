@@ -573,6 +573,14 @@ struct AppCoordinatorPersistenceTests {
         #expect(coordinator.components(separatedBy: "await cancelInstallHistoryCollection()").count == 4)
         #expect(coordinator.contains("startInstallHistoryCollection()"))
         #expect(coordinator.contains("cache: fileCache"))
+        // rescan(manager:) restarts the collection it cancelled.
+        let rescan = try #require(coordinator.range(of: "func rescan(manager: PackageManager) async {"))
+        #expect(coordinator[rescan.upperBound...].prefix(700).contains("defer { startInstallHistoryCollection() }"))
+        // Turning history off, revoking, demo mode and Clear History close the
+        // cache-write gate synchronously before anything else.
+        #expect(coordinator.contains("if !provenanceCollection { stopInstallHistoryCollection() }"))
+        #expect(coordinator.components(separatedBy: "stopInstallHistoryCollection()").count >= 5)
+        #expect(coordinator.contains("ProvenanceCollectionOutcome.merged("))
     }
 
     @Test("APP25-007: failed automatic first snapshot remains retryable")

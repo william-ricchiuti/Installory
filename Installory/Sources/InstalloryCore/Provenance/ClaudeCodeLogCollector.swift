@@ -145,9 +145,14 @@ public struct ClaudeCodeLogCollector: Sendable {
             }
         }
         report.bytesRead = budget.bytesRead
-        if report.stopReason != .cancelled {
-            cacheSession.finish(directoryAccess: directoryAccess)
-        }
+        // Files parsed to the end are flushed even when cancelled, so a
+        // restarted scan doesn't redo them. Eviction runs only for runs that
+        // were not cancelled (re-checked here: cancellation can land after
+        // the loop ends). A closed ``GatedProvenanceFileCacheStore`` drops
+        // the write entirely once install history is turned off.
+        let cancelled = report.stopReason == .cancelled || Task.isCancelled
+        if cancelled { report.stopReason = .cancelled }
+        cacheSession.finish(directoryAccess: directoryAccess, evictMissingFiles: !cancelled)
         return (results, report)
     }
 
@@ -160,11 +165,12 @@ public struct ClaudeCodeLogCollector: Sendable {
             packageName: record.packageName,
             manager: record.manager,
             context: redactor.redact(record.context),
-            qualifierHints: Array(ProvenanceCollector.agentQualifierHints(
+            qualifierHints: Array(ProvenanceCollector.cacheableQualifierHints(
                 command: record.context.bashInvocation,
                 manager: record.manager,
                 packageName: record.packageName,
-                detector: detector
+                detector: detector,
+                redactor: redactor
             ))
         )
     }

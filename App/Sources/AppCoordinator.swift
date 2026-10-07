@@ -77,6 +77,10 @@ final class AppCoordinator {
     private(set) var isCollectingInstallHistory = false
     @ObservationIgnored private var installHistoryTask: Task<Void, Never>?
     @ObservationIgnored private var installHistoryGeneration = 0
+    /// File-cache writes of the running collection. Closed synchronously when
+    /// install history is turned off, access is revoked, demo mode starts or
+    /// history is cleared, so a cancelled run never writes afterwards.
+    @ObservationIgnored private var installHistoryCacheGate: GatedProvenanceFileCacheStore?
 
     /// Non-nil when local persistence is unavailable — the SQLite cache couldn't
     /// be opened, or a save failed. The UI surfaces this so results that silently
@@ -211,7 +215,7 @@ final class AppCoordinator {
     /// explicitly opts in via Settings → Privacy → Provenance.
     var provenanceCollection: Bool = false {
         didSet {
-            if !provenanceCollection { installHistoryTask?.cancel() }
+            if !provenanceCollection { stopInstallHistoryCollection() }
         }
     }
 
@@ -399,7 +403,7 @@ final class AppCoordinator {
     /// Loads the bundled sample inventory and snapshots into memory and switches
     /// the app into demo mode. No filesystem, database, or network access occurs.
     func enterDemoMode() {
-        installHistoryTask?.cancel()
+        stopInstallHistoryCollection()
         isDemoMode = true
         isScanning = false
         searchQuery = ""
@@ -1154,6 +1158,9 @@ final class AppCoordinator {
             inFlightManagers = []
         }
         await cancelInstallHistoryCollection()
+        // Restart install history for the updated inventory on every exit;
+        // runs after packageDAO.replaceAll below, so FK constraints hold.
+        defer { startInstallHistoryCollection() }
 
         var accessedURLs: [URL] = []
         for (_, data) in folderAccess.grantedBookmarks() {
@@ -1660,7 +1667,7 @@ final class AppCoordinator {
     /// Safe to call outside of an active scan (the Revoke button is shown only
     /// when the toggle is ON and the toggle is disabled while scanning).
     func revokeProvenanceAccess() {
-        installHistoryTask?.cancel()
+        stopInstallHistoryCollection()
         let homePath = UserHome.directory.path
         guard let storedPath = folderAccess.grantedPath(covering: homePath) else { return }
         folderAccess.remove(path: storedPath)
@@ -1672,6 +1679,7 @@ final class AppCoordinator {
     func clearProvenanceEvidence() async {
         // Stop a running collection first so it cannot write evidence or file
         // cache entries back after they are erased.
+        stopInstallHistoryCollection()
         await cancelInstallHistoryCollection()
         guard let persistence = provenancePersistence else {
             actionError = "Couldn't erase install history because the local cache isn't available."
@@ -1947,13 +1955,24 @@ final class AppCoordinator {
         installHistoryTask?.cancel()
         installHistoryGeneration &+= 1
         let generation = installHistoryGeneration
+        let cacheGate = database.map {
+            GatedProvenanceFileCacheStore(base: ProvenanceFileCacheDAO(database: $0))
+        }
+        installHistoryCacheGate = cacheGate
         isCollectingInstallHistory = true
         installHistoryTask = Task { [weak self] in
-            await self?.collectInstallHistory()
+            await self?.collectInstallHistory(cacheGate: cacheGate)
             guard let self, self.installHistoryGeneration == generation else { return }
             self.isCollectingInstallHistory = false
             self.installHistoryTask = nil
         }
+    }
+
+    /// Turning install history off: blocks further cache writes immediately
+    /// (synchronously, before this returns) and cancels the running task.
+    private func stopInstallHistoryCollection() {
+        installHistoryCacheGate?.close()
+        installHistoryTask?.cancel()
     }
 
     /// Cancels any running install-history collection and waits until it has
@@ -1966,7 +1985,7 @@ final class AppCoordinator {
         isCollectingInstallHistory = false
     }
 
-    private func collectInstallHistory() async {
+    private func collectInstallHistory(cacheGate: GatedProvenanceFileCacheStore?) async {
         guard provenanceCollection, !Task.isCancelled else { return }
 
         // Require a security-scoped bookmark covering the home directory.
@@ -1989,7 +2008,7 @@ final class AppCoordinator {
         // cache, so unchanged logs are not re-read on every scan.
         let capturedPackages = packages
         let capturedHomeURL = homeURL
-        let fileCache: (any ProvenanceFileCacheStore)? = database.map { ProvenanceFileCacheDAO(database: $0) }
+        let fileCache: (any ProvenanceFileCacheStore)? = cacheGate
         let collection = Task.detached(priority: .utility) {
             ProvenanceCollector(
                 shellCollector: ShellHistoryCollector(homeDirectory: capturedHomeURL),
@@ -2005,11 +2024,11 @@ final class AppCoordinator {
                     databasePath: capturedHomeURL
                         .appendingPathComponent(".local/share/opencode/opencode.db")
                 )
-            ).collect(packages: capturedPackages)
+            ).collectWithOutcome(packages: capturedPackages)
         }
         // A detached task does not inherit cancellation; forward it so the
         // collectors stop promptly when a new scan or Clear History arrives.
-        let evidenceList = await withTaskCancellationHandler {
+        let outcome = await withTaskCancellationHandler {
             await collection.value
         } onCancel: {
             collection.cancel()
@@ -2021,6 +2040,14 @@ final class AppCoordinator {
 
         // Persist evidence and refresh the in-memory cache. packageDAO.replaceAll
         // already ran in scan(), so FK constraints are satisfied.
+        // A budget-stopped run leaves older logs unread; keep earlier
+        // attribution for packages it found nothing for. Evidence for packages
+        // no longer installed is dropped either way.
+        let evidenceList = ProvenanceCollectionOutcome.merged(
+            previous: provenanceByPackageId,
+            fresh: outcome.evidence,
+            isComplete: outcome.isComplete
+        )
         let byId = Dictionary(
             evidenceList.map { ($0.packageId, $0) },
             uniquingKeysWith: { _, newest in newest }
