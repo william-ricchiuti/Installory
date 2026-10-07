@@ -71,6 +71,7 @@ struct SnapshotChoiceSheet: View {
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
             }
+            .disabled(coordinator.isPreparingRemovalScript)
         }
         .padding(24)
         .frame(width: 420)

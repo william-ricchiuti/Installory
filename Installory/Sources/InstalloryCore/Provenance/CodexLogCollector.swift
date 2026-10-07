@@ -12,78 +12,160 @@ public struct CodexLogCollector: Sendable {
     private let directoryAccess: any DirectoryAccessProvider
     private let homeDirectory: URL
     private let detector: InstallCommandDetector
+    private let limits: ProvenanceCollectionLimits
+    private let cache: (any ProvenanceFileCacheStore)?
+    private let redactor = ProvenanceRedactor()
 
+    /// - Parameters:
+    ///   - limits: Byte and wall-clock budgets for one collection run.
+    ///   - cache: Optional per-file cache. When set, returned records are
+    ///     already redacted (cache hits and fresh parses alike) so evidence is
+    ///     identical whichever path produced it.
     public init(
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
         homeDirectory: URL = UserHome.directory,
-        detector: InstallCommandDetector = InstallCommandDetector()
+        detector: InstallCommandDetector = InstallCommandDetector(),
+        limits: ProvenanceCollectionLimits = .default,
+        cache: (any ProvenanceFileCacheStore)? = nil
     ) {
         self.directoryAccess = directoryAccess
         self.homeDirectory = homeDirectory
         self.detector = detector
+        self.limits = limits
+        self.cache = cache
     }
 
-    /// Walks ~/.codex/sessions, parses every session, and returns every install
-    /// command found inside an `exec_command` call, with full session context.
+    /// Walks ~/.codex/sessions newest first and returns every install command
+    /// found inside an `exec_command` call, with session context. Stops early
+    /// when the byte or time budget in ``ProvenanceCollectionLimits`` is spent.
     public func collect() -> [InstalledByCodex] {
-        guard !Task.isCancelled else { return [] }
+        collectWithReport().records
+    }
+
+    /// Like ``collect()`` and also reports counters (no log content).
+    public func collectWithReport() -> (records: [InstalledByCodex], report: ProvenanceCollectionReport) {
+        var report = ProvenanceCollectionReport()
+        guard !Task.isCancelled else {
+            report.stopReason = .cancelled
+            return ([], report)
+        }
         let sessionsURL = homeDirectory
             .appendingPathComponent(".codex")
             .appendingPathComponent("sessions")
 
         guard let yearDirs = try? directoryAccess.contentsOfDirectory(at: sessionsURL) else {
-            return []
+            return ([], report)
         }
 
+        var budget = ProvenanceScanBudget(limits: limits)
+        var cacheSession = ProvenanceFileCacheSession<CachedAgentInstall<ProvenanceEvidence.CodexContext>>(
+            store: cache,
+            source: .codex
+        )
         var results: [InstalledByCodex] = []
+
+        // Newest first: date-bucketed directories and rollout files sort
+        // lexically by time, so descending path order is recency order.
         let years = yearDirs
             .filter { isNumericName($0) }
-            .sorted { $0.path < $1.path }
+            .sorted { $0.path > $1.path }
             .prefix(maximumCodexYears)
-        for yearDir in years {
-            guard !Task.isCancelled, results.count < maximumCodexInstallRecords else { break }
+        traversal: for yearDir in years {
             let monthDirs = ((try? directoryAccess.contentsOfDirectory(at: yearDir)) ?? [])
                 .filter { isNumericName($0) }
-                .sorted { $0.path < $1.path }
+                .sorted { $0.path > $1.path }
                 .prefix(maximumCodexMonthsPerYear)
             for monthDir in monthDirs {
-                guard !Task.isCancelled, results.count < maximumCodexInstallRecords else { break }
                 let dayDirs = ((try? directoryAccess.contentsOfDirectory(at: monthDir)) ?? [])
                     .filter { isNumericName($0) }
-                    .sorted { $0.path < $1.path }
+                    .sorted { $0.path > $1.path }
                     .prefix(maximumCodexDaysPerMonth)
                 for dayDir in dayDirs {
-                    guard !Task.isCancelled, results.count < maximumCodexInstallRecords else { break }
                     let sessionFiles = ((try? directoryAccess.contentsOfDirectory(at: dayDir)) ?? [])
                         .filter { $0.pathExtension == "jsonl" }
-                        .sorted { $0.path < $1.path }
-                    let remaining = maximumCodexInstallRecords - results.count
-                    results.append(contentsOf: collectFromSessions(sessionFiles.prefix(remaining)))
+                        .sorted { $0.path > $1.path }
+                    for fileURL in sessionFiles {
+                        if Task.isCancelled {
+                            report.stopReason = .cancelled
+                            break traversal
+                        }
+                        if results.count >= maximumCodexInstallRecords {
+                            report.stopReason = .recordLimit
+                            break traversal
+                        }
+                        if budget.isTimeExpired {
+                            report.stopReason = .timeBudget
+                            break traversal
+                        }
+                        report.filesVisited += 1
+                        let remaining = maximumCodexInstallRecords - results.count
+
+                        let stamp = cacheSession.isEnabled
+                            ? ProvenanceFileStamp.of(fileURL, using: directoryAccess)
+                            : nil
+                        if let cached = cacheSession.records(for: fileURL, stamp: stamp) {
+                            report.cacheHits += 1
+                            results.append(contentsOf: cached.prefix(remaining).map(InstalledByCodex.init(cached:)))
+                            continue
+                        }
+                        // Keep walking after the byte budget so cached files
+                        // still contribute, but read nothing new.
+                        if budget.isByteBudgetSpent {
+                            report.stopReason = .byteBudget
+                            report.filesSkippedForBudget += 1
+                            continue
+                        }
+                        guard let parsed = parseSession(at: fileURL, budget: &budget) else { continue }
+                        report.filesParsed += 1
+                        guard !Task.isCancelled else {
+                            report.stopReason = .cancelled
+                            break traversal
+                        }
+                        if cacheSession.isEnabled {
+                            let cachedForm = parsed.map(cachedRecord(from:))
+                            cacheSession.store(cachedForm, for: fileURL, stamp: stamp)
+                            results.append(contentsOf: cachedForm.prefix(remaining).map(InstalledByCodex.init(cached:)))
+                        } else {
+                            results.append(contentsOf: parsed.prefix(remaining))
+                        }
+                    }
                 }
             }
         }
-        return results
+        report.bytesRead = budget.bytesRead
+        if report.stopReason != .cancelled {
+            cacheSession.finish(directoryAccess: directoryAccess)
+        }
+        return (results, report)
+    }
+
+    /// Redacts the context for persistence and keeps the scope hints derived
+    /// from the original command.
+    private func cachedRecord(from record: InstalledByCodex) -> CachedAgentInstall<ProvenanceEvidence.CodexContext> {
+        CachedAgentInstall(
+            packageName: record.packageName,
+            manager: record.manager,
+            context: redactor.redact(record.context),
+            qualifierHints: Array(ProvenanceCollector.agentQualifierHints(
+                command: record.context.bashInvocation,
+                manager: record.manager,
+                packageName: record.packageName,
+                detector: detector
+            ))
+        )
     }
 
     // MARK: - Per-session parsing
 
-    private func collectFromSessions(_ files: some Collection<URL>) -> [InstalledByCodex] {
-        var results: [InstalledByCodex] = []
-        for fileURL in files {
-            guard !Task.isCancelled, results.count < maximumCodexInstallRecords else { break }
-            let remaining = maximumCodexInstallRecords - results.count
-            results.append(contentsOf: parseSession(at: fileURL).prefix(remaining))
-        }
-        return results
-    }
-
-    private func parseSession(at url: URL) -> [InstalledByCodex] {
+    /// Returns nil when the file could not be read.
+    private func parseSession(at url: URL, budget: inout ProvenanceScanBudget) -> [InstalledByCodex]? {
         guard !Task.isCancelled,
               let data = try? directoryAccess.data(
                   contentsOf: url,
                   maximumBytes: maximumCodexSessionBytes,
                   from: .suffix
-              ) else { return [] }
+              ) else { return nil }
+        budget.bytesRead += data.count
 
         let formatter = makeTimestampFormatter()
 
@@ -92,11 +174,14 @@ public struct CodexLogCollector: Sendable {
         var projectPath = ""
         findSessionMeta(in: data, formatter: formatter, sessionId: &sessionId, projectPath: &projectPath)
 
-        // Second pass: extract exec_command install commands.
+        // Second pass: extract exec_command install commands. Lines without
+        // the tool-call marker and a package-manager token are never decoded.
         var results: [InstalledByCodex] = []
 
-        UTF8LineReader.forEachLine(in: data) { rawLine in
+        UTF8LineReader.forEachLineBuffer(in: data) { buffer in
             guard results.count < maximumCodexInstallRecords else { return false }
+            guard ProvenanceLinePrefilter.codexToolCall.mayContainInstall(buffer),
+                  let rawLine = UTF8LineReader.decode(buffer) else { return true }
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard !line.isEmpty else { return true }
             guard let lineData = line.data(using: .utf8),
@@ -148,7 +233,9 @@ public struct CodexLogCollector: Sendable {
         sessionId: inout String,
         projectPath: inout String
     ) {
-        UTF8LineReader.forEachLine(in: data) { rawLine in
+        UTF8LineReader.forEachLineBuffer(in: data) { buffer in
+            guard ProvenanceLinePrefilter.contains(buffer, "session_meta"),
+                  let rawLine = UTF8LineReader.decode(buffer) else { return true }
             let line = rawLine.trimmingCharacters(in: .whitespaces)
             guard let lineData = line.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: lineData) as? [String: Any],
@@ -219,6 +306,16 @@ public struct InstalledByCodex: Sendable, Equatable {
     public let packageName: String
     public let manager: PackageManager
     public let context: ProvenanceEvidence.CodexContext
+    /// Scope hints from the original command; set only for cached (redacted)
+    /// records, whose command text can no longer be re-classified exactly.
+    var qualifierHints: Set<InstallQualifierHint?>? = nil
+
+    init(cached: CachedAgentInstall<ProvenanceEvidence.CodexContext>) {
+        self.packageName = cached.packageName
+        self.manager = cached.manager
+        self.context = cached.context
+        self.qualifierHints = Set(cached.qualifierHints)
+    }
 
     public init(
         packageName: String,

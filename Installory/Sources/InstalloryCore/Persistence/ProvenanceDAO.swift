@@ -72,10 +72,13 @@ public actor ProvenanceDAO {
         }
     }
 
-    /// Removes all rows from `provenance_evidence`.
+    /// Removes all rows from `provenance_evidence` and the per-file session-log
+    /// cache (`provenance_file_cache`) in one transaction, so "Clear History"
+    /// leaves no extracted install records behind.
     public func deleteAll() throws {
         try database.pool.write { db in
             try db.execute(sql: "DELETE FROM provenance_evidence")
+            try db.execute(sql: "DELETE FROM provenance_file_cache")
         }
     }
 }

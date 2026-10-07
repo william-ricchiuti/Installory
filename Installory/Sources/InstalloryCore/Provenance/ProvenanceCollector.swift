@@ -223,6 +223,18 @@ public struct ProvenanceCollector: Sendable {
         for record in records where record.timestamp != nil {
             guard !Task.isCancelled else { return [:] }
             let key = PackageKey(manager: record.manager, name: record.packageName)
+            // Cached records carry hints derived from the original command,
+            // because their stored command text has already been redacted.
+            if let precomputed = record.qualifierHints {
+                let hints: Set<InstallQualifierHint?> = precomputed.isEmpty ? [nil] : precomputed
+                for hint in hints {
+                    byKey[key, default: []].append(ScopedCandidate(
+                        value: record,
+                        qualifierHint: hint
+                    ))
+                }
+                continue
+            }
             let command = record.bashInvocation
             if hintsByCommand[command] == nil {
                 var hintsByKey: [PackageKey: Set<InstallQualifierHint?>] = [:]
@@ -245,6 +257,24 @@ public struct ProvenanceCollector: Sendable {
             }
         }
         return byKey
+    }
+
+    /// Scope hints for one agent record, computed from its original command
+    /// exactly as ``bucketAgentRecords(_:detector:)`` would. Collectors store
+    /// these with cached records whose command text is redacted.
+    static func agentQualifierHints(
+        command: String,
+        manager: PackageManager,
+        packageName: String,
+        detector: InstallCommandDetector
+    ) -> Set<InstallQualifierHint?> {
+        let key = PackageKey(manager: manager, name: packageName)
+        var hints: Set<InstallQualifierHint?> = []
+        for detection in detector.detectInstallations(command)
+        where PackageKey(manager: detection.manager, name: detection.name) == key {
+            hints.insert(detection.qualifierHint)
+        }
+        return hints.isEmpty ? [nil] : hints
     }
 
     private func nearestShell(
@@ -415,6 +445,11 @@ fileprivate protocol AgentInstallRecord {
     var manager: PackageManager { get }
     var bashInvocation: String { get }
     var timestamp: Date? { get }
+    var qualifierHints: Set<InstallQualifierHint?>? { get }
+}
+
+extension InstalledByOpenCode {
+    var qualifierHints: Set<InstallQualifierHint?>? { nil }
 }
 
 extension InstalledByClaudeCode: AgentInstallRecord {

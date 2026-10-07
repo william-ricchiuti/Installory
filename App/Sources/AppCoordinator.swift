@@ -70,6 +70,14 @@ final class AppCoordinator {
     private(set) var isScanning = false
     private(set) var lastScanCompletedAt: Date?
 
+    /// True while install history (provenance) is being collected after a
+    /// scan. Scan results are already visible; this only drives a small
+    /// "Updating install history…" status. At most one collection runs: a new
+    /// scan, a single-manager rescan or Clear History cancels it and waits.
+    private(set) var isCollectingInstallHistory = false
+    @ObservationIgnored private var installHistoryTask: Task<Void, Never>?
+    @ObservationIgnored private var installHistoryGeneration = 0
+
     /// Non-nil when local persistence is unavailable — the SQLite cache couldn't
     /// be opened, or a save failed. The UI surfaces this so results that silently
     /// won't be remembered between launches don't look like a mysterious bug.
@@ -201,7 +209,11 @@ final class AppCoordinator {
     ///
     /// Defaults to `false`. The collectors must never be called until the user
     /// explicitly opts in via Settings → Privacy → Provenance.
-    var provenanceCollection: Bool = false
+    var provenanceCollection: Bool = false {
+        didSet {
+            if !provenanceCollection { installHistoryTask?.cancel() }
+        }
+    }
 
     // MARK: - Removal flow (coordinator-driven "Ask" dialog)
 
@@ -209,6 +221,26 @@ final class AppCoordinator {
     /// preference is `.ask`. RootView presents the snapshot-choice sheet while
     /// this is set; the sheet clears it on confirm or cancel.
     var pendingRemovalPackages: [Package]? = nil
+
+    /// True while a confirmed removal is generating its script (and capturing a
+    /// snapshot if asked). The snapshot-choice buttons are disabled meanwhile.
+    private(set) var isPreparingRemovalScript = false
+
+    /// One sheet hosts the whole removal flow: the snapshot question and then
+    /// the generated script. RootView switches the content in place instead of
+    /// dismissing one sheet and presenting another, because presenting a
+    /// second `.sheet` in the same update that dismisses the first is dropped
+    /// by SwiftUI on macOS. That is how "Skip Snapshot" produced no script.
+    var isRemovalSheetPresented: Bool {
+        cleanupResult != nil || pendingRemovalPackages != nil
+    }
+
+    /// Called when the removal sheet is dismissed (Done, Cancel, Escape).
+    func dismissRemovalSheet() {
+        guard !isPreparingRemovalScript else { return }
+        cleanupResult = nil
+        pendingRemovalPackages = nil
+    }
 
     // MARK: - Description corpus
 
@@ -367,6 +399,7 @@ final class AppCoordinator {
     /// Loads the bundled sample inventory and snapshots into memory and switches
     /// the app into demo mode. No filesystem, database, or network access occurs.
     func enterDemoMode() {
+        installHistoryTask?.cancel()
         isDemoMode = true
         isScanning = false
         searchQuery = ""
@@ -1120,6 +1153,7 @@ final class AppCoordinator {
             isScanning = false
             inFlightManagers = []
         }
+        await cancelInstallHistoryCollection()
 
         var accessedURLs: [URL] = []
         for (_, data) in folderAccess.grantedBookmarks() {
@@ -1508,17 +1542,26 @@ final class AppCoordinator {
     /// Called by SnapshotChoiceSheet when the user answers the snapshot question.
     /// Clears the pending state (dismisses the sheet), optionally persists the choice,
     /// then proceeds to script generation.
+    ///
+    /// The pending state is cleared only after the script exists, so the sheet
+    /// stays up and swaps from the question to the script without a dismissal
+    /// in between. The packages come from the sheet, never from the current
+    /// selection, so a scan landing meanwhile cannot change what is removed.
     func confirmRemoval(packages: [Package], takeSnapshot: Bool, remember: Bool) async {
+        guard !isPreparingRemovalScript else { return }
         if remember {
             snapshotBeforeRemoval = takeSnapshot ? .always : .never
             persistSettings()
         }
-        pendingRemovalPackages = nil
+        isPreparingRemovalScript = true
         await generateAndShowCleanupScript(packages: packages, captureSnapshot: takeSnapshot)
+        isPreparingRemovalScript = false
+        pendingRemovalPackages = nil
     }
 
     /// Called when the user dismisses the snapshot-choice sheet without choosing.
     func cancelRemoval() {
+        guard !isPreparingRemovalScript else { return }
         pendingRemovalPackages = nil
     }
 
@@ -1617,6 +1660,7 @@ final class AppCoordinator {
     /// Safe to call outside of an active scan (the Revoke button is shown only
     /// when the toggle is ON and the toggle is disabled while scanning).
     func revokeProvenanceAccess() {
+        installHistoryTask?.cancel()
         let homePath = UserHome.directory.path
         guard let storedPath = folderAccess.grantedPath(covering: homePath) else { return }
         folderAccess.remove(path: storedPath)
@@ -1626,6 +1670,9 @@ final class AppCoordinator {
     /// Called when the user turns off provenance collection and confirms they want
     /// to erase stored install history.
     func clearProvenanceEvidence() async {
+        // Stop a running collection first so it cannot write evidence or file
+        // cache entries back after they are erased.
+        await cancelInstallHistoryCollection()
         guard let persistence = provenancePersistence else {
             actionError = "Couldn't erase install history because the local cache isn't available."
             return
@@ -1712,6 +1759,9 @@ final class AppCoordinator {
             isScanning = false
             inFlightManagers = []
         }
+        // The previous scan's install-history pass must not write evidence for
+        // an inventory this scan is about to replace.
+        await cancelInstallHistoryCollection()
 
         var accessedURLs: [URL] = []
         for (_, data) in folderAccess.grantedBookmarks() {
@@ -1880,12 +1930,44 @@ final class AppCoordinator {
 
         // MARK: Provenance collection (gated by user opt-in)
         //
-        // This block must remain at the very end of scan(), after packageDAO.replaceAll,
-        // so the FK constraint (provenance_evidence.package_id → packages.id) is satisfied.
-        //
-        // Critical: the guard below is the primary enforcement of "provenance defaults OFF".
-        // Nothing outside this block should call the collectors.
-        guard provenanceCollection else { return }
+        // Starts after packageDAO.replaceAll above, so the FK constraint
+        // (provenance_evidence.package_id → packages.id) is satisfied. It runs
+        // as its own task so scan results show while session logs are read.
+        startInstallHistoryCollection()
+    }
+
+    // MARK: - Install history (provenance)
+
+    /// Starts collecting install history for the current inventory.
+    ///
+    /// Critical: the `provenanceCollection` guard is the primary enforcement of
+    /// "provenance defaults OFF". Nothing outside this path calls the collectors.
+    private func startInstallHistoryCollection() {
+        guard provenanceCollection, !isDemoMode else { return }
+        installHistoryTask?.cancel()
+        installHistoryGeneration &+= 1
+        let generation = installHistoryGeneration
+        isCollectingInstallHistory = true
+        installHistoryTask = Task { [weak self] in
+            await self?.collectInstallHistory()
+            guard let self, self.installHistoryGeneration == generation else { return }
+            self.isCollectingInstallHistory = false
+            self.installHistoryTask = nil
+        }
+    }
+
+    /// Cancels any running install-history collection and waits until it has
+    /// stopped, so nothing it would write can land after the caller proceeds.
+    func cancelInstallHistoryCollection() async {
+        guard let task = installHistoryTask else { return }
+        task.cancel()
+        await task.value
+        installHistoryTask = nil
+        isCollectingInstallHistory = false
+    }
+
+    private func collectInstallHistory() async {
+        guard provenanceCollection, !Task.isCancelled else { return }
 
         // Require a security-scoped bookmark covering the home directory.
         // The user grants this via "Grant read access…" in Settings → Privacy.
@@ -1896,31 +1978,49 @@ final class AppCoordinator {
         else { return }
 
         // Start security-scoped access for the home directory grant.
-        // `startAccessingSecurityScopedResource` is reference-counted: if the
-        // same URL was already started in the main scan loop above (because the
-        // user also uses the home directory for regular scanning), the count
-        // increments to 2 and both `defer` blocks decrement it correctly.
+        // `startAccessingSecurityScopedResource` is reference-counted, so this
+        // is independent of any access a scan started.
         guard let homeURL = folderAccess.startAccessing(homeBookmarkPair.bookmark) else { return }
         defer { folderAccess.stopAccessing(homeURL) }
 
         // Run collectors on a background executor. File I/O must stay off the
-        // main actor. All captured values are Sendable (URL, [Package]).
+        // main actor. All captured values are Sendable. Session-log collectors
+        // walk newest first within byte/time budgets and reuse the per-file
+        // cache, so unchanged logs are not re-read on every scan.
         let capturedPackages = packages
         let capturedHomeURL = homeURL
-        let evidenceList: [ProvenanceEvidence] = await Task.detached(priority: .utility) {
+        let fileCache: (any ProvenanceFileCacheStore)? = database.map { ProvenanceFileCacheDAO(database: $0) }
+        let collection = Task.detached(priority: .utility) {
             ProvenanceCollector(
                 shellCollector: ShellHistoryCollector(homeDirectory: capturedHomeURL),
-                claudeCodeCollector: ClaudeCodeLogCollector(homeDirectory: capturedHomeURL),
-                codexCollector: CodexLogCollector(homeDirectory: capturedHomeURL),
+                claudeCodeCollector: ClaudeCodeLogCollector(
+                    homeDirectory: capturedHomeURL,
+                    cache: fileCache
+                ),
+                codexCollector: CodexLogCollector(
+                    homeDirectory: capturedHomeURL,
+                    cache: fileCache
+                ),
                 opencodeCollector: OpenCodeLogCollector(
                     databasePath: capturedHomeURL
                         .appendingPathComponent(".local/share/opencode/opencode.db")
                 )
             ).collect(packages: capturedPackages)
-        }.value
+        }
+        // A detached task does not inherit cancellation; forward it so the
+        // collectors stop promptly when a new scan or Clear History arrives.
+        let evidenceList = await withTaskCancellationHandler {
+            await collection.value
+        } onCancel: {
+            collection.cancel()
+        }
+
+        // A cancelled collection returns no (or partial) evidence; never let it
+        // replace what is shown or stored.
+        guard !Task.isCancelled, provenanceCollection else { return }
 
         // Persist evidence and refresh the in-memory cache. packageDAO.replaceAll
-        // already ran above, so FK constraints are satisfied.
+        // already ran in scan(), so FK constraints are satisfied.
         let byId = Dictionary(
             evidenceList.map { ($0.packageId, $0) },
             uniquingKeysWith: { _, newest in newest }
