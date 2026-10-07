@@ -8,27 +8,25 @@ App Store Connect. Remaining owner steps are checklist items 4 onward.
 Do not upload a local unsigned or ad-hoc QA archive. Create a fresh distribution
 archive from the merged, clean `main` branch.
 
-### What's New (draft for App Store Connect)
+### What's New (paste into App Store Connect)
 
-Paste the text between the rules. 1,960 characters; the App Store limit
+Paste the text between the rules. 1,050 characters; the App Store limit
 is 4,000.
 
 ---
 
-Know what's on your Mac, and what your AI put there. Installory 1.6 adds a read-only checkup of your AI coding setup.
+Know what's on your Mac, and what your AI put there.
 
-• New Home checkup: four plain rows for installed tools, AI tools, secrets in AI tool settings, and space. Each says whether it looks good, needs a look, or hasn't been checked yet.
-• New AI Setup screen: see the MCP servers set up in Claude Code, Claude Desktop, Cursor, VS Code, Codex and opencode, plus your CLAUDE.md, AGENTS.md and rules files, and your agent permissions and hooks. Each finding explains the problem in plain English and suggests a fix.
-• Finds API keys and passwords written in plain text in AI tool settings. Installory shows only the key name and file, never the value.
-• Ask your AI assistant: copy a ready-made prompt for Claude Code, Codex or any assistant about a package, a duplicate, a cleanup, or a finding. Prompts ask the assistant to explain each step and wait for your OK.
-• Copy My Setup for My AI Assistant: give your assistant a short summary of your tools so its advice fits your Mac.
-• New first-run guide that explains which folders Installory opens and which it doesn't, and asks for your home folder (read only).
-• Install History (formerly provenance) shows which tools you installed and which Claude Code, Codex or opencode installed. Still optional and off by default. If you turned it on before, Installory may ask you once to allow your home folder.
-• Clearer names: Possibly Unused, Saved Setup, Size on disk, and "Runs first" / "Hidden by another copy" for duplicates.
-• Safer cleanup scripts: commands run in a subshell so they can't change your Terminal session, and each script explains how to run it.
-• Fixes: tools in your home folder are found correctly in the sandbox, Command-F focuses search, and several layout and VoiceOver fixes.
+• Home checkup: four plain rows for installed tools, AI tools, API keys left in plain text, and space.
+• AI Setup: your MCP servers across Claude Code, Claude Desktop, Cursor, VS Code, Codex and opencode, your CLAUDE.md, AGENTS.md and rules files, and agent permissions and hooks, with plain-English fixes.
+• Finds API keys written in plain text in AI tool settings. Shows the key name and file, never the value.
+• Ask your AI assistant: copy a ready-made prompt about a package, duplicate, cleanup or finding. Copy My Setup gives your assistant a summary of your tools.
+• A new first-run guide that asks for your home folder (read only) and explains what Installory opens.
+• Install History is much faster with large AI session histories.
+• Safer cleanup scripts with a "How to run this" note.
+• Fixes: tools in your home folder are now found correctly, Command-F focuses search, plus layout and VoiceOver fixes.
 
-Installory still only reads. It never changes your Mac, never runs commands, and never sends your data anywhere. It has no internet code of its own.
+If you used Install History before, Installory may ask once for your home folder.
 
 ---
 
