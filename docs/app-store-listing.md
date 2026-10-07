@@ -1,109 +1,101 @@
-# App Store listing draft (1.6.0)
+# App Store listing (1.6.0)
 
-Draft for the owner to paste into App Store Connect. Nothing here is submitted.
-Character counts are Unicode characters (what App Store Connect counts),
-measured with Python `len()` on the exact text, without the trailing newline.
+Final text for App Store Connect, chosen by the owner on 2026-10-07. Character
+counts are what App Store Connect counts (Python `len()` on the exact text).
 
-Rules followed: plain language; no metrics, ratings, user counts or
-testimonials; the read-only, offline, no-commands promise is stated as fact
-only where the code enforces it.
+## Name (limit 30)
 
-## App name (limit 30)
-
-| Option | Chars |
-|---|---|
-| `Installory` (current, recommended) | 10 |
-| `Installory: AI Coding Checkup` | 29 |
-
-Changing the name is optional. If it changes, update the website and README
-together.
+`Installory` (10). Unchanged.
 
 ## Subtitle (limit 30)
 
-| Option | Chars |
-|---|---|
-| `Check your AI coding setup` (recommended) | 26 |
-| `See what your AI tools changed` | 30 |
-| `Safe checkup for AI coding` | 26 |
-| `Dev tools and AI setup checkup` | 30 |
+`Check your AI coding setup` (26)
 
-Words in the subtitle are searchable, so keep them out of the keywords field.
+Subtitle words are indexed, so they are not repeated in the keywords.
 
 ## Promotional text (limit 170)
 
-Can be changed without a new build.
+Can be changed at any time without a new build. 160 characters.
 
-> See what your AI coding tools installed and changed, check your MCP servers, rules and permissions, and find what's safe to clean up. Read-only and offline.
-
-Chars: 156
+```
+Know what's on your Mac, and what your AI put there. Check your MCP servers, agent rules and permissions, find API keys left in plain text, and clean up safely.
+```
 
 ## Description (limit 4000)
 
-Chars: 2,425
+2,287 characters. Only the first three lines show before "more", so they
+carry the pitch.
 
 ```
-Know what's on your Mac, and what your AI put there. See what your AI coding tools installed and changed, and what's safe to clean up. Installory only reads. It never changes your Mac, never runs commands, and never sends your data anywhere.
+Know what's on your Mac, and what your AI put there.
+
+Installory shows what your AI coding tools installed, checks their settings for problems, and tells you what's safe to clean up. It only looks. It never changes anything.
 
 A CHECKUP IN PLAIN ENGLISH
-Home shows four rows: installed tools, AI tools, secrets in AI tool settings, and space. Each one says whether it looks good, needs a look, or hasn't been checked yet, and what to do next.
+Home sums up your Mac in four rows: installed tools, AI tools, API keys left in plain text, and space. Each row says whether it looks good or is worth a look, and what to do next.
 
 CHECK YOUR AI SETUP
-• MCP servers set up in Claude Code, Claude Desktop, Cursor, VS Code, Codex and opencode, in one list.
-• Spot servers that are set up differently in different places, whose program is missing, or that connect over the internet.
-• Review CLAUDE.md, AGENTS.md and rules files your agents read in every conversation.
-• See which permissions and hooks let an agent run commands without asking.
-• Find API keys and passwords written in plain text in AI tool settings. Installory shows the key name and file, never the value.
+• MCP servers from Claude Code, Claude Desktop, Cursor, VS Code, Codex and opencode, in one list. See which ones are set up differently in two places, are missing their program, or connect over the internet.
+• Instruction files your agents read in every conversation, like CLAUDE.md and AGENTS.md, including AGENTS.md files Claude Code won't read.
+• Permissions and hooks that let an agent run commands without asking you.
+• API keys and passwords written into AI tool settings. You see the key name and file, never the value.
 
-SEE WHAT YOUR AI TOOLS INSTALLED
-• Homebrew, pip, pipx, uv, npm, Cargo, RubyGems and Mac App Store apps in one searchable list.
-• Agent skills, agent command-line tools, and VS Code and Cursor extensions.
-• Optional Install History shows which tools you installed and which Claude Code, Codex or opencode installed. Off by default; everything is redacted and stays on your Mac.
+SEE WHAT YOUR AI INSTALLED
+• Homebrew, pip, pipx, uv, npm, Cargo, RubyGems, Mac App Store apps, agent skills, AI command-line tools, and VS Code and Cursor extensions in one searchable list, each with a plain-English description.
+• Optional Install History matches tools to the terminal command or AI session that installed them. Off until you turn it on, and it stays on your Mac.
 
 CLEAN UP WITHOUT THE FEAR
-• A clear verdict for every package: safe to remove, remove with care, or leave alone.
-• Find duplicates, possibly unused packages, and the safe removals that free the most space.
-• Cleanup is a script you read first and run yourself. Bulk cleanup saves a restore point first.
+• Every package is marked safe to remove, remove with care, or leave alone.
+• Find duplicates, tools you may not use, and the removals that free the most space.
+• You get a plain script with a "How to run this" note. Read it, and run it only if you want to. A bigger cleanup saves a restore point first.
 
 ASK YOUR AI ASSISTANT
-Copy a ready-made prompt for Claude Code, Codex or any assistant about a package, a duplicate, a cleanup or a finding. Each prompt asks the assistant to explain every step and wait for your OK. "Copy My Setup" gives your assistant a short summary of your tools so its advice fits your Mac. Installory only copies text to your clipboard.
+Copy a ready-made prompt for Claude Code, Codex or any assistant about a package, a duplicate or a finding. Every prompt asks the assistant to explain each step and wait for your OK. Copy My Setup gives your assistant a short summary of your tools.
 
 HOW IT STAYS SAFE
 • Reads only the folders you allow, with read-only access.
 • Never installs, removes or changes software, and never runs commands.
-• No internet code of its own. Descriptions are built in.
-• No account, no tracking. App Privacy: Data Not Collected.
+• No internet code of its own, no account, no tracking.
 • Try it first with sample data, no folder access needed.
 
 Free and open source (MIT). Requires macOS 14 or later.
 ```
 
-## Keywords (limit 100, comma-separated, no spaces)
+## Keywords (limit 100)
 
-Do not repeat words already in the app name or subtitle; Apple indexes those
-separately.
+`mcp,homebrew,brew,uninstall,cleanup,developer,agent,npm,pip,python,packages,disk,space,terminal` (95)
 
-| Option | Chars |
-|---|---|
-| A (recommended): `mcp,homebrew,brew,uninstall,cleanup,developer,agent,claude,codex,cursor,npm,pip,python,packages` | 95 |
-| B (no other product names): `mcp,homebrew,brew,uninstall,cleanup,developer,agent,npm,pip,python,packages,disk,space,terminal` | 95 |
+No other companies' product names (Claude, Codex, Cursor): Apple discourages
+trademarks in keywords and it can cause a rejection. The description names
+those tools where it describes what the app reads, which is allowed.
 
-Option A includes other companies' product names (Claude, Codex, Cursor).
-Apple's guidelines discourage using other apps' trademarked names in keywords,
-and it can cause a rejection. Option B avoids that. The description already
-names those tools, where accurate description is allowed. Owner decides.
+## What's New in 1.6.0
 
-## Screenshots (6)
+Same text as in [RELEASE.md](../RELEASE.md). 1,050 characters.
 
-Capture on the new Home and AI Setup screens; the current images in
-`files/screenshots/` predate them. Use a realistic but non-personal home folder
-(no real account name, project names or secrets visible; sample data or a test
-account). Caption text is overlaid or used as the screenshot's headline.
+## Categories
 
-| # | Screen | Caption | Chars |
-|---|---|---|---|
-| 1 | Home checkup with all four rows, at least one "worth a look" | `Know what's on your Mac, and what your AI put there` | 51 |
-| 2 | AI Setup: MCP servers list across several apps, a finding expanded | `See every MCP server your AI tools use` | 38 |
-| 3 | AI Setup: a plain-text secret finding with the value masked | `Find API keys left in plain text, safely masked` | 47 |
-| 4 | Package detail with Install History showing an AI-installed tool and the Ask Your AI Assistant menu open | `See what your AI assistant installed` | 36 |
-| 5 | Cleanup selection with verdict badges and the script sheet with "How to run this" | `Know what's safe to remove, then you decide` | 43 |
-| 6 | Onboarding "Allow your home folder" page with the Reads / Doesn't open list | `Read-only, offline, and never runs commands` | 43 |
+- Primary: Developer Tools.
+- Secondary: Utilities.
+
+## Accessibility labels
+
+Declare **Dark Interface** and **Reduced Motion**, which the app supports today.
+Declare VoiceOver only after a full VoiceOver pass of the common tasks
+(labels exist and the AI Setup accessibility crash is fixed, but no end-to-end
+VoiceOver test has been done).
+
+## Screenshots (2880×1800, in this order)
+
+Files are in `files/screenshots/app-store/`, rendered from sample data.
+
+| Order | File | Caption |
+|---|---|---|
+| 1 | `1-home.png` | Know what's on your Mac, and what your AI put there |
+| 2 | `3-ai-setup-top.png` | Find API keys left in plain text, safely masked |
+| 3 | `2-ai-setup-mcp.png` | See every MCP server your AI tools use |
+| 4 | `4-detail.png` | See what your AI assistant installed |
+| 5 | `5-safe-remove.png` | Know what's safe to remove, then you decide |
+
+The sample-data banner is visible in some screenshots; App Review generally
+accepts sample data.
