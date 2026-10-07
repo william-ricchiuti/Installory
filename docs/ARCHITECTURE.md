@@ -169,10 +169,13 @@ and hook commands go through `redactCommand`. Raw values never leave the
 collector. `~/.claude.json` is decoded, the MCP keys are plucked, and the rest
 (account, history, caches) is discarded immediately.
 
-The app screen that presents these findings ("AI Setup") and the Home
-checkup's AI-tools and secrets rows are being wired up in this release; until
-then `AppCoordinator` passes `agentFindings: nil` and the rows show "not
-checked".
+`AppCoordinator.runAgentConfigAudit` runs the auditor off the main actor
+during each full scan, but only while a grant covers the real home folder; it
+holds security-scoped access for the duration. Results stay in memory (they
+are not written to the database). `AISetupView` (⌘3) presents them, and
+`checkupInput()` feeds finding counts (critical→high, warning→medium,
+info→low) and the number of literal keys into the Home checkup's AI-tools and
+secrets rows. Without a home grant those rows show "not checked".
 
 ## Guidance (`Guidance/`)
 
