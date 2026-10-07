@@ -686,6 +686,20 @@ struct AppCoordinatorPersistenceTests {
         #expect(source.components(separatedBy: "requestReviewIfAppropriate()").count == 3)
     }
 
+    @Test("Sidebar rows don't use .badge, which breaks List selection on macOS")
+    func sidebarRowsAvoidBadge() throws {
+        let sidebar = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Sources/Views/SidebarView.swift"),
+            encoding: .utf8
+        )
+        // A .badge on the AI Setup NavigationLink made clicks clear the
+        // selection, so the row never opened AI Setup (found in 1.6.0 QA).
+        #expect(!sidebar.contains(".badge("))
+    }
+
     @Test("Views reset per item and keep relative times fresh")
     func viewIdentityAndTimelineWiring() throws {
         let views = URL(fileURLWithPath: #filePath)

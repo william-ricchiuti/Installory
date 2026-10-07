@@ -29,12 +29,23 @@ struct SidebarView: View {
             NavigationLink(value: SidebarSelection.dashboard) {
                 Label("Home", systemImage: "house")
             }
+            // No .badge or other modifiers on this NavigationLink: on macOS they
+            // broke List selection, so clicking the row never opened AI Setup.
+            // The count is drawn inside the label instead.
             NavigationLink(value: SidebarSelection.aiSetup) {
-                Label("AI Setup", systemImage: "cpu")
+                HStack(spacing: 4) {
+                    Label("AI Setup", systemImage: "cpu")
+                    Spacer(minLength: 0)
+                    if coordinator.aiSetupAttentionCount > 0 {
+                        Text("\(coordinator.aiSetupAttentionCount)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help("Your MCP servers, AI instruction files and agent permissions (\u{2318}3)")
+                .accessibilityElement(children: .combine)
+                .accessibilityValue(aiSetupBadgeAccessibilityValue)
             }
-            .badge(coordinator.aiSetupAttentionCount)
-            .accessibilityValue(aiSetupBadgeAccessibilityValue)
-            .help("Your MCP servers, AI instruction files and agent permissions (\u{2318}3)")
             if !coordinator.projectWorkspaces.isEmpty {
                 NavigationLink(value: SidebarSelection.projects) {
                     Label("Projects (\(coordinator.projectWorkspaces.count))", systemImage: "folder")
