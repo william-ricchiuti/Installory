@@ -1,9 +1,13 @@
 # Installory releases
 
-## 1.6.0 (build 12) — ready to submit
+## 1.6.0 (build 12) — in App Review
 
-Status: merged to `main` (PR #5) and versioned 1.6.0 (12). Not yet submitted to
-App Store Connect. Remaining owner steps are checklist items 4 onward.
+Status: merged to `main` (PR #5), versioned 1.6.0 (12), and submitted to App
+Review (October 2026). The App Store serves 1.5 until it is approved.
+
+Website: installory.app was rebuilt for 1.6 and deployed on 2026-10-07
+(installory-website PR #2). Its copy already describes 1.6, so no website
+change is needed at release unless the app's wording changes.
 
 Do not upload a local unsigned or ad-hoc QA archive. Create a fresh distribution
 archive from the merged, clean `main` branch.
@@ -99,8 +103,11 @@ the app without granting filesystem access.
     release mode.
 
 After release, tag the shipped commit, publish the same notes in the GitHub
-release, move this section under "Shipped", and update the separate website
-repository only through its own reviewed deploy.
+release, and move this section under "Shipped". The website already describes
+1.6. Change it only through the website repository's own reviewed deploy.
+The homepage reproduces app text (checkup rows, AI Setup findings, the copied
+prompt, cleanup script format) and the privacy policy lists every file the app
+reads, so update the website whenever those change in the app.
 
 ### Known advisories
 
