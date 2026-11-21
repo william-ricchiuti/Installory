@@ -46,6 +46,7 @@ public struct Denylist: Sendable {
         .init(manager: .brew, namePattern: "gpg",             reason: "required for package verification"),
         .init(manager: .brew, namePattern: "python@*",        reason: "removing Python can break many tools"),
         .init(manager: .brew, namePattern: "node",            reason: "many development tools depend on Node"),
+        .init(manager: .brew, namePattern: "node@*",          reason: "many development tools depend on Node"),
         .init(manager: .brew, namePattern: "ffmpeg",          reason: "commonly depended on by media tools"),
         .init(manager: .brew, namePattern: "sqlite",          reason: "required by Python and many applications"),
         // pip interpreter-level packages

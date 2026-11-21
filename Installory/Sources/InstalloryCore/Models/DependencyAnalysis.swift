@@ -3,9 +3,10 @@ import Foundation
 /// Reverse-dependency analysis for the installed package graph.
 ///
 /// **Limitations (by design):**
-/// - Only same-manager, same-qualifier, in-inventory direct dependencies are analysed.
-///   Cross-manager dependencies (e.g. a Cargo binary calling a Homebrew `ffmpeg`)
-///   are invisible.
+/// - Only same-manager, same-qualifier, in-inventory direct dependencies are analysed,
+///   plus one cross-manager case: Homebrew runtimes that host other managers'
+///   packages (see `RuntimeHosting`). Other cross-manager dependencies (e.g. a
+///   Cargo binary calling a Homebrew `ffmpeg`) are invisible.
 /// - Managers that do not populate `Package.dependencies` (e.g. `mas`, some
 ///   `cargo` and `gem` installs) will never produce dependents — this is
 ///   expected behaviour, not a defect.
@@ -49,9 +50,14 @@ extension [Package] {
             }
         }
 
+        // Homebrew runtimes that other managers' packages run on (node@22 with
+        // npm globals, uv with uv tools, …) are never orphans.
+        let hostIDs = Set(RuntimeHosting.hostedPackageIDs(in: self).keys)
+
         return self
             .filter { pkg in
                 guard pkg.manager.participatesInDependencyAnalysis else { return false }
+                guard !hostIDs.contains(pkg.id) else { return false }
                 guard pkg.isExplicit else { return false }
                 guard !pkg.isReadOnly else { return false }
                 guard !denylist.isDenylisted(pkg) else { return false }

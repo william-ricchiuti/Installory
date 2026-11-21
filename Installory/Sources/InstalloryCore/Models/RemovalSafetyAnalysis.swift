@@ -74,6 +74,20 @@ public enum RemovalSafetyAnalysis {
             )
         }
 
+        // 5b. Other managers' packages run on it (a Homebrew runtime such as
+        //     node@22, ruby, pyenv, uv or pipx with tools installed inside it).
+        let hosted = reverseDependencyIndex.hostedPackages(of: package)
+        if !hosted.isEmpty {
+            let names = hosted.prefix(3)
+                .map { "\($0.name) (\($0.manager.hostedLabel))" }
+                .joined(separator: ", ")
+            let extra = hosted.count > 3 ? " (+\(hosted.count - 3) more)" : ""
+            return RemovalSafetyVerdict(
+                safety: .caution,
+                reasons: ["Other tools you installed run on it: \(names)\(extra)"]
+            )
+        }
+
         // 6. Installed implicitly as a dependency rather than deliberately.
         if !package.isExplicit {
             return RemovalSafetyVerdict(
@@ -119,6 +133,21 @@ public enum RemovalSafetyAnalysis {
                 safety: .caution,
                 reasons: ["Installory can't verify whether anything depends on this"]
             )
+        }
+    }
+}
+
+private extension PackageManager {
+    /// Short, plain label used when naming packages hosted by a runtime.
+    var hostedLabel: String {
+        switch self {
+        case .npm: "npm"
+        case .gem: "gem"
+        case .pip: "Python"
+        case .pipx: "pipx"
+        case .uv: "uv tool"
+        case .cargo: "Cargo"
+        default: rawValue
         }
     }
 }

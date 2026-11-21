@@ -142,7 +142,7 @@ public struct PipScanner: PackageScanner, Sendable {
             installedAtConfidence: .medium,
             sizeBytes: sizeBytes,
             isExplicit: Self.isExplicit(distInfo),
-            isReadOnly: interpreter.isSystem,
+            isReadOnly: interpreter.isSystem || Self.isOwnedByHomebrew(distInfo),
             dependencies: deps,
             lastSeen: Date()
         )
@@ -197,6 +197,14 @@ public struct PipScanner: PackageScanner, Sendable {
         let candidateComponents = candidate.standardizedFileURL.pathComponents
         return candidateComponents.count >= rootComponents.count
             && candidateComponents.prefix(rootComponents.count).elementsEqual(rootComponents)
+    }
+
+    /// Homebrew installs some Python packages itself (for example `certifi`,
+    /// `cffi`, `cryptography`, `pip` and `wheel` inside its Python formulae) and
+    /// marks them with `INSTALLER` = `brew`. They belong to a formula, so
+    /// removing them with pip would break it; treat them like system packages.
+    static func isOwnedByHomebrew(_ distInfo: DistInfo) -> Bool {
+        distInfo.installer?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "brew"
     }
 
     /// Applies pip's `REQUESTED` marker contract without turning ambiguous
