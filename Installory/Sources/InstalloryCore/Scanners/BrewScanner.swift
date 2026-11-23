@@ -12,6 +12,7 @@ public struct BrewScanner: PackageScanner, Sendable {
     private let pathDiscovery: PathDiscovery
     private let directoryAccess: any DirectoryAccessProvider
     private let applicationDirectories: [URL]
+    private let denials = PermissionDenialRecorder()
 
     public init(
         pathDiscovery: PathDiscovery = PathDiscovery(),
@@ -37,6 +38,7 @@ public struct BrewScanner: PackageScanner, Sendable {
 
     public func scan() async throws -> [Package] {
         try Task.checkCancellation()
+        denials.reset()
         let prefixes = pathDiscovery.homebrewPrefixes
         try Task.checkCancellation()
         // `Package.id` carries no prefix component, so a formula installed under
@@ -65,6 +67,7 @@ public struct BrewScanner: PackageScanner, Sendable {
             packages += found.filter { seen.insert($0.id).inserted }
         }
         try Task.checkCancellation()
+        try denials.throwIfNothingFoundBecauseDenied(foundNothing: packages.isEmpty)
         return packages
     }
 
@@ -78,14 +81,9 @@ public struct BrewScanner: PackageScanner, Sendable {
     ) async throws -> [Package] {
         try Task.checkCancellation()
         let root = prefix.appendingPathComponent(subdirectory)
-        let nameDirs: [URL]
-        do {
-            nameDirs = try directoryAccess.contentsOfDirectory(at: root)
-        } catch {
-            try Task.checkCancellation()
-            // Cellar or Caskroom doesn't exist under this prefix — not an error.
-            return []
-        }
+        // A missing Cellar or Caskroom is normal; an unreadable one is
+        // remembered so an empty scan reports "access needed".
+        let nameDirs = denials.contents(of: root, using: directoryAccess)
         try Task.checkCancellation()
 
         var packages: [Package] = []

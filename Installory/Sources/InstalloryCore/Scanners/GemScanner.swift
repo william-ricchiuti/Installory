@@ -12,6 +12,8 @@ public struct GemScanner: PackageScanner, Sendable {
     private let homeDirectory: URL
     private let environment: PackageManagerEnvironment
 
+    private let denials = PermissionDenialRecorder()
+
     public init(
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
         homeDirectory: URL = UserHome.directory,
@@ -33,6 +35,7 @@ public struct GemScanner: PackageScanner, Sendable {
     }
 
     public func scan() async throws -> [Package] {
+        denials.reset()
         try Task.checkCancellation()
         var sizer = BoundedDirectorySizer(directoryAccess: directoryAccess)
         var seen: Set<String> = []
@@ -56,6 +59,7 @@ public struct GemScanner: PackageScanner, Sendable {
                 < ($1.name, $1.qualifier ?? "", $1.version)
         }
         try Task.checkCancellation()
+        try denials.throwIfNothingFoundBecauseDenied(foundNothing: sortedPackages.isEmpty)
         return sortedPackages
     }
 
@@ -92,7 +96,7 @@ public struct GemScanner: PackageScanner, Sendable {
         ]
 
         let rbenvVersions = homeDirectory.appendingPathComponent(".rbenv/versions")
-        let versions = directoryAccess.directoryContentsOrEmpty(at: rbenvVersions)
+        let versions = denials.contents(of: rbenvVersions, using: directoryAccess)
         try Task.checkCancellation()
         for version in versions {
             try Task.checkCancellation()
@@ -112,7 +116,7 @@ public struct GemScanner: PackageScanner, Sendable {
         }
         try Task.checkCancellation()
 
-        let apiVersions = directoryAccess.directoryContentsOrEmpty(at: root)
+        let apiVersions = denials.contents(of: root, using: directoryAccess)
         try Task.checkCancellation()
         for apiVersion in apiVersions {
             try Task.checkCancellation()
@@ -131,7 +135,7 @@ public struct GemScanner: PackageScanner, Sendable {
         sizer: inout BoundedDirectorySizer
     ) async throws -> [Package] {
         var packages: [Package] = []
-        let entries = directoryAccess.directoryContentsOrEmpty(at: specificationsDir)
+        let entries = denials.contents(of: specificationsDir, using: directoryAccess)
         try Task.checkCancellation()
         for entry in entries {
             try Task.checkCancellation()
