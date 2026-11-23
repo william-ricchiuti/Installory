@@ -242,28 +242,52 @@ reviews it in a sheet, then copies or saves it. Installory never runs it.
 
 ## Invariants and CI
 
-`scripts/check-invariants.sh` fails the build when:
+`scripts/check-invariants.sh` fails the build when, in Swift code under
+`Installory/Sources` or `App/Sources` (comments ignored, including a trailing
+`// …` or a one-line `/* … */`):
 
-- `Process(` appears in non-comment Swift under `Installory/Sources` or
-  `App/Sources`;
-- networking APIs appear (`URLSession`, `URLRequest`, `URLProtocol`,
-  `NWConnection`, `NWListener`, `NWBrowser`, `NWPathMonitor`, `CFNetwork`,
-  `import Network`);
+- a subprocess or dynamic-loading API appears: `Process` in any form
+  (`Process()`, `Foundation.Process`, a stored metatype), `posix_spawn`,
+  `fork`/`exec*`/`system(`, `popen`, `NSTask`, `NSUserScriptTask`,
+  `NSUserUnixTask`, `NSAppleScript`, `dlopen`/`dlsym`, `NSClassFromString`;
+- a networking API appears: `URLSession`, `URLRequest`, `URLProtocol`, the
+  `NW*` types, `CFNetwork`/`CFStream*`, `NSURLConnection`, `WKWebView`,
+  `SFSafariViewController`, `getaddrinfo`, `socket(`, or `import` of Network,
+  WebKit or SafariServices;
+- the app opens URLs or apps (`NSWorkspace.shared.open…`, `openURL`);
+- a file is deleted, moved, copied, linked or has its attributes changed, or a
+  write happens outside the two files that save user-chosen exports
+  (`AppCoordinator`, `ScriptSheetView`);
+- `bookmarkData(` is called anywhere but `FolderAccessManager`, or that file
+  loses `.securityScopeAllowOnlyReadAccess`;
 - the entitlements file or `project.yml` differs from the three approved keys;
-- `FolderAccessManager` loses `.securityScopeAllowOnlyReadAccess`;
 - `Installory.xcodeproj` is tracked in Git.
 
-The check is pattern-based and skips comment-only lines; it is a tripwire, not
-a proof. Code review still matters.
+`scripts/check-invariants.sh --binary <Installory.app>` checks the compiled app
+as well: no imported subprocess, socket, `getaddrinfo`, `nw_*` or `dlopen`
+symbols and no `NSTask`/`NSURLSession`/`WKWebView`-style classes (`nm -u`); no
+Network, WebKit, CFNetwork, NetworkExtension or SafariServices framework
+(`otool -L`); only allowed web addresses in its strings; and, when signed, the
+three entitlements and no network entitlement.
+
+The source check is pattern-based; it is a tripwire, not a proof. The binary
+check catches what a renamed or indirect call would slip past it. Code review
+still matters.
 
 `.github/workflows/test.yml` runs on pushes to `main` and on pull requests
 (macOS 15 runners):
 
 - **InstalloryCore job:** invariants, `swift build`, XCTest
   (`--disable-swift-testing`), then Swift Testing (`--disable-xctest`), both
-  with `--no-parallel`.
+  with `--no-parallel`; then sample cleanup scripts (every manager, plus names
+  with spaces, quotes and `$(…)`) are written, never run, and linted with
+  `shellcheck -S warning`.
 - **InstalloryApp job:** pinned, checksum-verified XcodeGen; regenerate the
-  project; invariants again; Debug app tests unsigned; unsigned Release build.
+  project; invariants again; Debug app tests unsigned; unsigned Release build;
+  the binary check on that build. The test step also fails when the test host
+  crashed, because xcodebuild relaunches a crashed host and can still report
+  success (Xcode 27 doesn't log the relaunch, so the step looks for new
+  Installory crash reports too).
 
 ## Testing strategy
 

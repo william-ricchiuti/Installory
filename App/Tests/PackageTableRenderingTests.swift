@@ -32,6 +32,10 @@ struct PackageTableRenderingTests {
             backing: .buffered,
             defer: false
         )
+        // A window made in code releases itself on close by default, and ARC
+        // releases it again: that over-release crashed the test host at
+        // teardown (after every test had passed).
+        window.isReleasedWhenClosed = false
         defer { window.close() }
         window.contentView = hostingView
         window.setContentSize(NSSize(width: 1_000, height: 700))
