@@ -29,6 +29,7 @@ public struct ReverseDependencyIndex: Sendable {
 
     private let dependentsByKey: [Key: [String]]
     private let packagesByID: [String: Package]
+    private let hostedByFormulaID: [String: [String]]
 
     public init(packages: [Package]) {
         var reverseDependents: [Key: [String]] = [:]
@@ -44,6 +45,7 @@ public struct ReverseDependencyIndex: Sendable {
 
         self.dependentsByKey = reverseDependents
         self.packagesByID = byID
+        self.hostedByFormulaID = RuntimeHosting.hostedPackageIDs(in: packages)
     }
 
     /// The installed packages that directly depend on `package`.
@@ -61,6 +63,19 @@ public struct ReverseDependencyIndex: Sendable {
 
     /// The installed packages that directly depend on the package with the given
     /// inventory id. Returns an empty array when the id is unknown.
+    /// Packages from other managers that run on this Homebrew formula (for
+    /// example npm globals inside `node@22`, gems inside `ruby`, tools inside
+    /// `uv` or `pipx`). Empty for anything that isn't such a runtime.
+    public func hostedPackages(of package: Package) -> [Package] {
+        (hostedByFormulaID[package.id] ?? [])
+            .compactMap { packagesByID[$0] }
+            .sorted {
+                let nameOrder = $0.name.localizedCaseInsensitiveCompare($1.name)
+                if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
+                return $0.id < $1.id
+            }
+    }
+
     public func dependents(ofPackageID id: String) -> [Package] {
         guard let package = packagesByID[id] else { return [] }
         return dependents(of: package)

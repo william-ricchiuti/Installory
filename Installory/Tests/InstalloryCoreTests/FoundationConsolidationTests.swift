@@ -32,7 +32,7 @@ struct FoundationConsolidationTests {
         #expect(provider.directoryContentsOrEmpty(at: missing).isEmpty)
     }
 
-    @Test("Requires-Dist name parsing preserves constraints, markers, extras, and whitespace semantics")
+    @Test("Requires-Dist name parsing drops constraints, markers and extras")
     func requirementNameParsingPreservesScannerSemantics() {
         #expect(
             PythonRequirement.distributionName(
@@ -44,7 +44,9 @@ struct FoundationConsolidationTests {
                 from: "typing-extensions; python_version < '3.11'"
             ) == "typing-extensions"
         )
-        #expect(PythonRequirement.distributionName(from: "httpx[http2] >= 0.27") == "httpx[http2]")
+        // Extras name optional features of the same distribution; the
+        // dependency is still on `httpx`, so it must match the installed row.
+        #expect(PythonRequirement.distributionName(from: "httpx[http2] >= 0.27") == "httpx")
         #expect(PythonRequirement.distributionName(from: "   ").isEmpty)
     }
 }
