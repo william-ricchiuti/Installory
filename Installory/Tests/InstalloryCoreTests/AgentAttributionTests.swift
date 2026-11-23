@@ -82,7 +82,8 @@ struct AgentAttributionTests {
         let text = NarrativeRenderer().render(evidence(codex: codexContext), package: makePackage())
         #expect(text.hasPrefix("Installed "))
         #expect(text.contains("by Codex while working in ~/projects/api."))
-        #expect(text.contains("You'd asked: \"add type checking\"."))
+        // The first prompt is never shown (2026-11 review, CL-9).
+        #expect(!text.contains("add type checking"))
     }
 
     @Test("opencode evidence renders a narrative naming opencode")

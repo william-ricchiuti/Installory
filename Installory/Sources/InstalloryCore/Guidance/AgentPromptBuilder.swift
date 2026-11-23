@@ -180,7 +180,11 @@ public struct AgentPromptBuilder: Sendable, Equatable {
         case .general:
             let body = compose([
                 "\(greeting)Installory flagged something on my Mac: \(title).",
-                redactor.redact(text: finding.explanation),
+                // Defense in depth: explanations are built from masked values,
+                // but a copied prompt must never carry even a masked prefix.
+                SecretRedaction.hidingMaskedPrefixes(
+                    SecretRedaction.redact(redactor.redact(text: finding.explanation), replacement: "••••")
+                ),
                 fileBlock.map { "Files involved:\n\($0)" },
                 """
                 Please:

@@ -684,7 +684,9 @@ struct AgentConfigFindingRules {
     static func summary(of server: MCPServerEntry) -> String {
         switch server.transport {
         case .stdio:
-            ([server.command ?? "(no command)"] + server.args).joined(separator: " ")
+            SecretRedaction.hidingMaskedPrefixes(
+                ([server.command ?? "(no command)"] + server.args).joined(separator: " ")
+            )
         case .remote:
             "remote server at \(server.urlHost ?? "an unknown address")"
         }

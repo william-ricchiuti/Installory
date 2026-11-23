@@ -16,10 +16,49 @@ enum AgentConfigSecretMasker {
         return String(value.prefix(4)) + "…"
     }
 
-    /// True when a key name looks like it holds a credential.
+    /// True when a key name looks like it holds a credential. Matches whole
+    /// name segments (`OPENAI_API_KEY`, `DB_PASS`, `apiKey`, `GH_PAT`), so
+    /// settings such as `MAX_THINKING_TOKENS` or `GIT_AUTHOR_NAME` don't match.
     static func isSecretKey(_ key: String) -> Bool {
-        let upper = key.uppercased()
-        return ["KEY", "TOKEN", "SECRET", "PASSWORD", "AUTH"].contains { upper.contains($0) }
+        SecretRedaction.isSecretKeyName(key)
+    }
+
+    /// A `${NAME:-default}` style reference whose default is written in the
+    /// file (`:-`, `-`, `:=`, `=`, `:?`, `?`, `:+`, `+`). The default is a
+    /// literal value, so the whole thing is not just a reference.
+    private static let referenceWithDefaultPattern =
+        #"\$\{[A-Za-z_][A-Za-z0-9_]*:?[-=?+]([^}]*)\}"#
+
+    /// Masks only the literal default inside `${NAME:-default}` references,
+    /// keeping the variable name readable: `${API_KEY:-••••}`. Returns nil when
+    /// the value has no literal default.
+    static func maskedReferenceDefaults(_ value: String) -> String? {
+        guard SecretRedaction.matches(referenceWithDefaultPattern, value) else { return nil }
+        guard let expression = try? NSRegularExpression(pattern: referenceWithDefaultPattern) else { return nil }
+        let nsValue = value as NSString
+        var result = ""
+        var cursor = 0
+        var maskedAny = false
+        for match in expression.matches(in: value, range: NSRange(location: 0, length: nsValue.length)) {
+            let defaultRange = match.range(at: 1)
+            let defaultValue = nsValue.substring(with: defaultRange)
+            result += nsValue.substring(with: NSRange(location: cursor, length: defaultRange.location - cursor))
+            if defaultValue.isEmpty || isReference(defaultValue) {
+                result += defaultValue
+            } else {
+                result += shortMask
+                maskedAny = true
+            }
+            cursor = defaultRange.location + defaultRange.length
+        }
+        result += nsValue.substring(from: cursor)
+        return maskedAny ? result : nil
+    }
+
+    /// Masks a literal value: the default inside a `${NAME:-default}`
+    /// reference, or the whole value otherwise.
+    static func maskLiteral(_ value: String) -> String {
+        maskedReferenceDefaults(value) ?? mask(value)
     }
 
     /// True when a value only refers to a variable defined elsewhere, such as
@@ -34,6 +73,8 @@ enum AgentConfigSecretMasker {
     static func isReference(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { return false }
+        // `${NAME:-literal}` carries a literal default, so it isn't only a reference.
+        if let masked = maskedReferenceDefaults(trimmed), masked != trimmed { return false }
         guard referencePatterns.contains(where: { matches($0, trimmed) }) else { return false }
         var remainder = trimmed
         for pattern in referencePatterns {
@@ -58,18 +99,20 @@ enum AgentConfigSecretMasker {
 
     /// Well-known credential formats that are secret regardless of key name.
     static func looksLikeToken(_ value: String) -> Bool {
-        matches(
-            #"(?:sk-[A-Za-z0-9_-]{16,}|sk-ant-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{30,}|glpat-[A-Za-z0-9_-]{16,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})"#,
-            value
-        )
+        SecretRedaction.looksLikeToken(value)
     }
 
     /// Masks one key/value pair from an `env` or `headers` table.
     static func maskedPair(key: String, value: String) -> MaskedValue {
+        if let masked = maskedReferenceDefaults(value) {
+            return MaskedValue(key: key, maskedValue: masked, isLiteralSecret: true)
+        }
         if isReference(value) {
             return MaskedValue(key: key, maskedValue: value, isLiteralSecret: false)
         }
-        let isSecret = !value.isEmpty && (isSecretKey(key) || looksLikeToken(value))
+        let byName = isSecretKey(key) && !SecretRedaction.isHarmlessValue(value)
+        let byValue = looksLikeToken(value) || (value.contains("://") && urlContainsSecret(value))
+        let isSecret = !value.isEmpty && (byName || byValue)
         return MaskedValue(key: key, maskedValue: mask(value), isLiteralSecret: isSecret)
     }
 
@@ -99,7 +142,7 @@ enum AgentConfigSecretMasker {
                     if isReference(arg) {
                         result.append(arg)
                     } else {
-                        result.append(mask(arg))
+                        result.append(maskLiteral(arg))
                         foundSecret = foundSecret || !arg.isEmpty
                     }
                     continue
@@ -114,7 +157,7 @@ enum AgentConfigSecretMasker {
                     continue
                 }
                 if isSecretKey(flag), !value.isEmpty, !isReference(value) {
-                    result.append(flag + "=" + mask(value))
+                    result.append(flag + "=" + maskLiteral(value))
                     foundSecret = true
                     continue
                 }
@@ -126,7 +169,7 @@ enum AgentConfigSecretMasker {
                 let value = String(arg[arg.index(after: equals)...])
                 if isSecretKey(key), !value.isEmpty, !isReference(value),
                    key.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }) {
-                    result.append(key + "=" + mask(value))
+                    result.append(key + "=" + maskLiteral(value))
                     foundSecret = true
                     continue
                 }
@@ -138,6 +181,11 @@ enum AgentConfigSecretMasker {
             }
             if looksLikeToken(arg) {
                 result.append(mask(arg))
+                foundSecret = true
+                continue
+            }
+            if let masked = maskedReferenceDefaults(arg) {
+                result.append(masked)
                 foundSecret = true
                 continue
             }
@@ -174,31 +222,11 @@ enum AgentConfigSecretMasker {
         return secretQuery || looksLikeToken(components.path)
     }
 
-    /// Redacts secrets inside a free-form shell command (used for hooks).
+    /// Redacts secrets inside a free-form shell command (used for hooks and
+    /// permission rules). Uses the same rules as Install History.
     static func redactCommand(_ command: String, maximumLength: Int = 1_024) -> String {
-        var value = command
-        // Credentials embedded in URLs: scheme://user:pass@host
-        value = replacing(#"(?i)([a-z][a-z0-9+.-]*://)[^\s/@]+@"#, in: value, with: "$1••••@")
-        // Authorization schemes.
-        value = replacing(#"(?i)(\b(?:Bearer|Basic|token)\s+)[A-Za-z0-9._~+/=-]{4,}"#, in: value, with: "$1••••")
-        // KEY=value, --key value, --key=value, "key": "value" for secret-looking keys.
-        let secretKey = #"[A-Za-z0-9_-]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|AUTH)[A-Za-z0-9_-]*"#
-        value = replacing(
-            "(?i)((?:^|[\\s;&|(])-{0,2}\(secretKey)\\s*(?:=|:|\\s)\\s*)(\"[^\"]*\"|'[^']*'|[^\\s;&|)]+)",
-            in: value,
-            with: "$1••••"
-        )
-        // Query-string secrets in URLs.
-        value = replacing(
-            "(?i)([?&]\(secretKey)=)[^&\\s\"']+",
-            in: value,
-            with: "$1••••"
-        )
-        value = replacing(
-            #"(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|glpat-[A-Za-z0-9_-]{16,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})"#,
-            in: value,
-            with: "••••"
-        )
+        var value = SecretRedaction.redact(command, replacement: shortMask)
+        if let masked = maskedReferenceDefaults(value) { value = masked }
         if value.count > maximumLength {
             value = String(value.prefix(maximumLength)) + "…"
         }

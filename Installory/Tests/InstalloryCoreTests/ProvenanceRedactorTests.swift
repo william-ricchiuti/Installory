@@ -76,7 +76,8 @@ struct ProvenanceRedactorTests {
         #expect(result.installCommand?.cwd == "~/work")
         #expect(result.claudeCodeContext?.projectPath == "~/work/client")
         #expect(result.claudeCodeContext?.bashInvocation == "TOKEN=[REDACTED] pip install requests")
-        #expect(result.claudeCodeContext?.firstUserMessage == "install requests with token=[REDACTED]")
+        // The first prompt is never kept (2026-11 review, CL-9).
+        #expect(result.claudeCodeContext?.firstUserMessage == nil)
         #expect(result.claudeCodeContext?.sessionId.count == 128)
         #expect(result.claudeCodeContext?.sessionSummary?.count == 512)
         #expect(result.nearbyProjects.first?.path == "~/work/client")

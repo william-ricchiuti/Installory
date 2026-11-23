@@ -613,6 +613,7 @@ final class AppCoordinator {
             aiInstalledThisWeekCount: aiInstalledThisWeekCount(now: now),
             agentFindings: aiSetupAudit.map(AISetupPresentation.checkupCounts),
             exposedSecretCount: aiSetupAudit?.literalSecretCount,
+            unreadableSettingsFileCount: aiSetupAudit?.unreadableSettingsFileCount ?? 0,
             reclaimableBytes: bundle.totalReclaimableBytes,
             safeToRemoveCount: bundle.candidates.count,
             coverageGaps: gaps
