@@ -327,9 +327,13 @@ public struct PythonInterpreterDiscovery: Sendable {
             let resolvedRoot = directoryAccess
                 .resolvingSymlinks(at: root)
                 .standardizedFileURL
+            // Under a home-folder grant, personal folders (Documents, Desktop,
+            // Pictures, Library, …) are never opened.
+            let isHome = root.path == homeDirectory.standardizedFileURL.path
             let projectDirectories = ([root] + cancellableDirectoryContents(at: root))
                 .map(\.standardizedFileURL)
                 .filter { isSameOrImmediateChild($0, of: root) }
+                .filter { !isHome || !PersonalFolders.isPersonal($0, home: homeDirectory) }
                 .sorted(by: { $0.path < $1.path })
 
             for projectDirectory in projectDirectories {

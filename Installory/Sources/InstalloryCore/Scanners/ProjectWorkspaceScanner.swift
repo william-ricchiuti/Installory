@@ -29,6 +29,9 @@ struct ProjectWorkspaceDiscovery {
 /// `Cargo.toml`, or a `*.xcodeproj` bundle. Only direct children of each root
 /// are inspected, so the walk is shallow, bounded, and read-only. No process
 /// is ever executed and nothing outside the granted roots is touched.
+/// When the granted root is the home folder, home itself is not a project and
+/// its personal folders (`PersonalFolders`) are skipped; Homebrew's folders are
+/// never projects.
 ///
 /// Workspaces are purely informational: the app never removes them.
 public struct ProjectWorkspaceScanner: Sendable {
@@ -54,12 +57,28 @@ public struct ProjectWorkspaceScanner: Sendable {
     private let directoryAccess: any DirectoryAccessProvider
     private let limits: Limits
     private let directorySizeLimits: DirectorySizeLimits
+    private let homeDirectory: URL
+
+    /// Sizing budget for all project folders together. Project sizes are
+    /// secondary information, so the whole project step gets at most 1.5 s of
+    /// sizing (0.5 s per project); folders not measured in time show no size.
+    /// Before 1.6.1 each project got its own 1 s budget, which made scans with
+    /// many large projects take tens of seconds.
+    static let defaultSizeLimits = DirectorySizeLimits(
+        maxEntriesPerMeasurement: 100_000,
+        maxBytesPerMeasurement: 128 * 1_024 * 1_024 * 1_024,
+        maxDurationPerMeasurement: .milliseconds(500),
+        maxEntriesPerScan: 500_000,
+        maxBytesPerScan: 512 * 1_024 * 1_024 * 1_024,
+        maxDurationPerScan: .milliseconds(1_500)
+    )
 
     /// Discovers and uses every granted directory as a scan root.
     public init(
         grantedURLs: [URL],
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
-        limits: Limits = .default
+        limits: Limits = .default,
+        homeDirectory: URL = UserHome.directory
     ) {
         self.init(
             roots: ProjectWorkspaceDiscovery.roots(
@@ -68,7 +87,8 @@ public struct ProjectWorkspaceScanner: Sendable {
             ),
             directoryAccess: directoryAccess,
             limits: limits,
-            directorySizeLimits: .default
+            directorySizeLimits: Self.defaultSizeLimits,
+            homeDirectory: homeDirectory
         )
     }
 
@@ -76,13 +96,15 @@ public struct ProjectWorkspaceScanner: Sendable {
     public init(
         roots: [URL],
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
-        limits: Limits = .default
+        limits: Limits = .default,
+        homeDirectory: URL = UserHome.directory
     ) {
         self.init(
             roots: roots,
             directoryAccess: directoryAccess,
             limits: limits,
-            directorySizeLimits: .default
+            directorySizeLimits: Self.defaultSizeLimits,
+            homeDirectory: homeDirectory
         )
     }
 
@@ -90,12 +112,14 @@ public struct ProjectWorkspaceScanner: Sendable {
         roots: [URL],
         directoryAccess: any DirectoryAccessProvider,
         limits: Limits,
-        directorySizeLimits: DirectorySizeLimits
+        directorySizeLimits: DirectorySizeLimits,
+        homeDirectory: URL = UserHome.directory
     ) {
         self.roots = roots
         self.directoryAccess = directoryAccess
         self.limits = limits
         self.directorySizeLimits = directorySizeLimits
+        self.homeDirectory = homeDirectory.standardizedFileURL
     }
 
     public func scan() async throws -> [ProjectWorkspace] {
@@ -104,9 +128,20 @@ public struct ProjectWorkspaceScanner: Sendable {
 
         var workspaces: [ProjectWorkspace] = []
         var seen: Set<String> = []
+        // One budget for every project in this scan.
+        var sizer = BoundedDirectorySizer(
+            directoryAccess: directoryAccess,
+            limits: directorySizeLimits
+        )
 
         for (rootIndex, root) in roots.enumerated() {
             try await checkpoint(rootIndex)
+            // Homebrew's folders are a Git checkout, not a project of the user's.
+            guard !PersonalFolders.isToolPrefix(root) else { continue }
+            // With a home-folder grant, home itself is never a project and its
+            // personal folders (Documents, Desktop, Pictures, Library, …) are
+            // never opened.
+            let isHome = root.standardizedFileURL.path == homeDirectory.path
             let rootChildren: [URL]
             do {
                 rootChildren = try directoryAccess.contentsOfDirectory(at: root)
@@ -118,11 +153,12 @@ public struct ProjectWorkspaceScanner: Sendable {
 
             // The root itself may be a single project (the user granted it
             // directly); otherwise inspect each direct child directory.
-            var candidates: [URL] = [root]
+            var candidates: [URL] = isHome ? [] : [root]
             for child in rootChildren.sorted(by: {
                 $0.standardizedFileURL.path < $1.standardizedFileURL.path
             }) {
                 let standardized = child.standardizedFileURL
+                if isHome, PersonalFolders.isPersonal(standardized, home: homeDirectory) { continue }
                 guard let metadata = try? directoryAccess.metadata(at: standardized),
                       metadata.kind == .directory else { continue }
                 candidates.append(standardized)
@@ -136,7 +172,8 @@ public struct ProjectWorkspaceScanner: Sendable {
                 }
                 guard let workspace = try await makeWorkspace(
                     at: candidate,
-                    containedIn: root
+                    containedIn: root,
+                    sizer: &sizer
                 ) else { continue }
                 workspaces.append(workspace)
             }
@@ -148,7 +185,8 @@ public struct ProjectWorkspaceScanner: Sendable {
 
     private func makeWorkspace(
         at candidate: URL,
-        containedIn root: URL
+        containedIn root: URL,
+        sizer: inout BoundedDirectorySizer
     ) async throws -> ProjectWorkspace? {
         try Task.checkCancellation()
         let resolved = directoryAccess
@@ -203,10 +241,6 @@ public struct ProjectWorkspaceScanner: Sendable {
         guard let resolvedKind else { return nil }
 
         try Task.checkCancellation()
-        var sizer = BoundedDirectorySizer(
-            directoryAccess: directoryAccess,
-            limits: directorySizeLimits
-        )
         let measuredSize = try await sizer.measure(
             [.tree(candidate)],
             constrainedTo: root
