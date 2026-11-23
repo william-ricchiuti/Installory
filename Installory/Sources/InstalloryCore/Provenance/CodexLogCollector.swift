@@ -53,9 +53,7 @@ public struct CodexLogCollector: Sendable {
             .appendingPathComponent(".codex")
             .appendingPathComponent("sessions")
 
-        guard let yearDirs = try? directoryAccess.contentsOfDirectory(at: sessionsURL) else {
-            return ([], report)
-        }
+        let yearDirs = (try? directoryAccess.contentsOfDirectory(at: sessionsURL)) ?? []
 
         var budget = ProvenanceScanBudget(limits: limits)
         var cacheSession = ProvenanceFileCacheSession<CachedAgentInstall<ProvenanceEvidence.CodexContext>>(
@@ -70,7 +68,10 @@ public struct CodexLogCollector: Sendable {
             .filter { isNumericName($0) }
             .sorted { $0.path > $1.path }
             .prefix(maximumCodexYears)
-        traversal: for yearDir in years {
+        // Every session file, newest first: the date-bucketed tree, then
+        // ~/.codex/archived_sessions (flat, named rollout-<timestamp>-<id>).
+        var candidateFiles: [URL] = []
+        for yearDir in years {
             let monthDirs = ((try? directoryAccess.contentsOfDirectory(at: yearDir)) ?? [])
                 .filter { isNumericName($0) }
                 .sorted { $0.path > $1.path }
@@ -81,55 +82,62 @@ public struct CodexLogCollector: Sendable {
                     .sorted { $0.path > $1.path }
                     .prefix(maximumCodexDaysPerMonth)
                 for dayDir in dayDirs {
-                    let sessionFiles = ((try? directoryAccess.contentsOfDirectory(at: dayDir)) ?? [])
+                    candidateFiles += ((try? directoryAccess.contentsOfDirectory(at: dayDir)) ?? [])
                         .filter { $0.pathExtension == "jsonl" }
                         .sorted { $0.path > $1.path }
-                    for fileURL in sessionFiles {
-                        if Task.isCancelled {
-                            report.stopReason = .cancelled
-                            break traversal
-                        }
-                        if results.count >= maximumCodexInstallRecords {
-                            report.stopReason = .recordLimit
-                            break traversal
-                        }
-                        if budget.isTimeExpired {
-                            report.stopReason = .timeBudget
-                            break traversal
-                        }
-                        report.filesVisited += 1
-                        let remaining = maximumCodexInstallRecords - results.count
-
-                        let stamp = cacheSession.isEnabled
-                            ? ProvenanceFileStamp.of(fileURL, using: directoryAccess)
-                            : nil
-                        if let cached = cacheSession.records(for: fileURL, stamp: stamp) {
-                            report.cacheHits += 1
-                            results.append(contentsOf: cached.prefix(remaining).map(InstalledByCodex.init(cached:)))
-                            continue
-                        }
-                        // Keep walking after the byte budget so cached files
-                        // still contribute, but read nothing new.
-                        if budget.isByteBudgetSpent {
-                            report.stopReason = .byteBudget
-                            report.filesSkippedForBudget += 1
-                            continue
-                        }
-                        guard let parsed = parseSession(at: fileURL, budget: &budget) else { continue }
-                        report.filesParsed += 1
-                        guard !Task.isCancelled else {
-                            report.stopReason = .cancelled
-                            break traversal
-                        }
-                        if cacheSession.isEnabled {
-                            let cachedForm = parsed.map(cachedRecord(from:))
-                            cacheSession.store(cachedForm, for: fileURL, stamp: stamp)
-                            results.append(contentsOf: cachedForm.prefix(remaining).map(InstalledByCodex.init(cached:)))
-                        } else {
-                            results.append(contentsOf: parsed.prefix(remaining))
-                        }
-                    }
                 }
+            }
+        }
+        let archivedURL = homeDirectory
+            .appendingPathComponent(".codex")
+            .appendingPathComponent("archived_sessions")
+        candidateFiles += ((try? directoryAccess.contentsOfDirectory(at: archivedURL)) ?? [])
+            .filter { $0.pathExtension == "jsonl" }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+
+        traversal: for fileURL in candidateFiles {
+            if Task.isCancelled {
+                report.stopReason = .cancelled
+                break traversal
+            }
+            if results.count >= maximumCodexInstallRecords {
+                report.stopReason = .recordLimit
+                break traversal
+            }
+            if budget.isTimeExpired {
+                report.stopReason = .timeBudget
+                break traversal
+            }
+            report.filesVisited += 1
+            let remaining = maximumCodexInstallRecords - results.count
+
+            let stamp = cacheSession.isEnabled
+                ? ProvenanceFileStamp.of(fileURL, using: directoryAccess)
+                : nil
+            if let cached = cacheSession.records(for: fileURL, stamp: stamp) {
+                report.cacheHits += 1
+                results.append(contentsOf: cached.prefix(remaining).map(InstalledByCodex.init(cached:)))
+                continue
+            }
+            // Keep walking after the byte budget so cached files
+            // still contribute, but read nothing new.
+            if budget.isByteBudgetSpent {
+                report.stopReason = .byteBudget
+                report.filesSkippedForBudget += 1
+                continue
+            }
+            guard let parsed = parseSession(at: fileURL, budget: &budget) else { continue }
+            report.filesParsed += 1
+            guard !Task.isCancelled else {
+                report.stopReason = .cancelled
+                break traversal
+            }
+            if cacheSession.isEnabled {
+                let cachedForm = parsed.map(cachedRecord(from:))
+                cacheSession.store(cachedForm, for: fileURL, stamp: stamp)
+                results.append(contentsOf: cachedForm.prefix(remaining).map(InstalledByCodex.init(cached:)))
+            } else {
+                results.append(contentsOf: parsed.prefix(remaining))
             }
         }
         report.bytesRead = budget.bytesRead
@@ -197,30 +205,29 @@ public struct CodexLogCollector: Sendable {
 
             let timestamp = (obj["timestamp"] as? String).flatMap(formatter.date)
 
-            guard let payload = obj["payload"] as? [String: Any],
-                  payload["type"] as? String == "function_call",
-                  payload["name"] as? String == "exec_command",
-                  let command = command(from: payload["arguments"]),
-                  !command.isEmpty else { return true }
+            guard let payload = obj["payload"] as? [String: Any] else { return true }
 
-            let detections = detector.detect(command)
-            guard !detections.isEmpty else { return true }
+            for command in Self.commands(from: payload) where !command.isEmpty {
+                let detections = detector.detect(command)
+                guard !detections.isEmpty else { continue }
 
-            let context = ProvenanceEvidence.CodexContext(
-                sessionId: sessionId,
-                projectPath: projectPath,
-                sessionSummary: nil,
-                firstUserMessage: nil,
-                bashInvocation: command,
-                timestamp: timestamp
-            )
+                let context = ProvenanceEvidence.CodexContext(
+                    sessionId: sessionId,
+                    projectPath: projectPath,
+                    sessionSummary: nil,
+                    firstUserMessage: nil,
+                    bashInvocation: command,
+                    timestamp: timestamp
+                )
 
-            for (pkgName, manager) in detections {
-                results.append(InstalledByCodex(
-                    packageName: pkgName,
-                    manager: manager,
-                    context: context
-                ))
+                for (pkgName, manager) in detections {
+                    results.append(InstalledByCodex(
+                        packageName: pkgName,
+                        manager: manager,
+                        context: context
+                    ))
+                    if results.count == maximumCodexInstallRecords { break }
+                }
                 if results.count == maximumCodexInstallRecords { break }
             }
             return results.count < maximumCodexInstallRecords
@@ -253,9 +260,84 @@ public struct CodexLogCollector: Sendable {
         }
     }
 
+    /// Shell commands in one Codex event. Codex has recorded commands in
+    /// several shapes over time:
+    /// - `function_call` named `exec_command` with `{"cmd": "…"}` arguments;
+    /// - the `exec` tool (`custom_tool_call`, 2026), whose `input` is a short
+    ///   script calling `tools.exec_command({cmd: "…", …})`. Only string
+    ///   literals are read; the script is never evaluated;
+    /// - `function_call` named `shell` / `container.exec` with
+    ///   `{"command": ["bash", "-lc", "…"]}`;
+    /// - `local_shell_call` with `action.command` as an array.
+    static func commands(from payload: [String: Any]) -> [String] {
+        let type = payload["type"] as? String
+        let name = payload["name"] as? String
+        switch (type, name) {
+        case ("function_call", "exec_command"):
+            return legacyCommand(from: payload["arguments"]).map { [$0] } ?? []
+        case ("custom_tool_call", "exec"):
+            guard let input = payload["input"] as? String else { return [] }
+            return execToolCommands(in: input)
+        case ("function_call", "shell"), ("function_call", "container.exec"), ("function_call", "local_shell"):
+            guard let arguments = jsonObject(payload["arguments"]),
+                  let command = arguments["command"] as? [String] else { return [] }
+            return [shellCommand(from: command)]
+        case ("local_shell_call", _):
+            guard let action = payload["action"] as? [String: Any],
+                  let command = action["command"] as? [String] else { return [] }
+            return [shellCommand(from: command)]
+        default:
+            return []
+        }
+    }
+
+    /// `["bash", "-lc", "brew install x"]` → `brew install x`; other arrays
+    /// are joined with spaces.
+    static func shellCommand(from parts: [String]) -> String {
+        let shells: Set<String> = ["bash", "sh", "zsh", "/bin/bash", "/bin/sh", "/bin/zsh", "/usr/bin/env bash"]
+        if parts.count >= 3, shells.contains(parts[0]), ["-c", "-lc", "-ic", "-l", "-ilc"].contains(parts[1]) {
+            return parts[2...].joined(separator: " ")
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// `tools.exec_command({cmd: "…"})` calls inside an `exec` tool script.
+    /// Reads `cmd` only when it is a string literal (double, single or
+    /// backtick quotes without `${…}` interpolation).
+    static func execToolCommands(in script: String) -> [String] {
+        let pattern = #"exec_command\(\s*\{[^{}]*?["']?\bcmd["']?\s*:\s*("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\$]|\\.)*`)"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return [] }
+        let nsScript = script as NSString
+        return expression.matches(in: script, range: NSRange(location: 0, length: nsScript.length)).compactMap { match in
+            unquoteLiteral(nsScript.substring(with: match.range(at: 1)))
+        }
+    }
+
+    /// Turns a JS string literal into its value. Escapes are the JSON ones.
+    static func unquoteLiteral(_ literal: String) -> String? {
+        guard let quote = literal.first, literal.count >= 2 else { return nil }
+        var body = String(literal.dropFirst().dropLast())
+        if quote != "\"" {
+            body = body
+                .replacingOccurrences(of: "\\\(quote)", with: String(quote))
+                .replacingOccurrences(of: "\"", with: "\\\"")
+        }
+        guard let data = "\"\(body)\"".data(using: .utf8),
+              let value = try? JSONDecoder().decode(String.self, from: data) else { return nil }
+        return value
+    }
+
+    private static func jsonObject(_ value: Any?) -> [String: Any]? {
+        if let dict = value as? [String: Any] { return dict }
+        if let string = value as? String, let data = string.data(using: .utf8) {
+            return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        }
+        return nil
+    }
+
     /// Recovers the command from a Codex `arguments` value. Codex encodes the
     /// arguments as a JSON string (`{"cmd":"…"}`); handle a decoded dict too.
-    private func command(from arguments: Any?) -> String? {
+    private static func legacyCommand(from arguments: Any?) -> String? {
         if let dict = arguments as? [String: Any] {
             guard let cmd = dict["cmd"] as? String, !cmd.isEmpty else { return nil }
             return cmd

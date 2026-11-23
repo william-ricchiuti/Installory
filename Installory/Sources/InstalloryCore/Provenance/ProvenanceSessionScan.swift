@@ -90,17 +90,34 @@ struct ProvenanceLinePrefilter: Sendable {
         "brew", "pip", "npm", "uv", "cargo", "gem", "yarn", "mas",
     ].map { Array($0.utf8) }
 
-    static let codexToolCall = ProvenanceLinePrefilter(markers: ["exec_command"])
+    /// Codex records commands as `exec_command` calls (legacy function calls
+    /// and the current `exec` tool's `tools.exec_command(…)`), `shell` calls
+    /// and `local_shell_call` items; any one of them qualifies a line.
+    static let codexToolCall = ProvenanceLinePrefilter(
+        anyOf: ["exec_command", "local_shell_call", "\"shell\"", "container.exec"]
+    )
     static let claudeToolCall = ProvenanceLinePrefilter(markers: ["tool_use", "Bash"])
 
     private let markers: [[UInt8]]
+    private let requiresAllMarkers: Bool
 
+    /// Every marker must appear in the line.
     init(markers: [String]) {
         self.markers = markers.map { Array($0.utf8) }
+        self.requiresAllMarkers = true
+    }
+
+    /// At least one marker must appear in the line.
+    init(anyOf markers: [String]) {
+        self.markers = markers.map { Array($0.utf8) }
+        self.requiresAllMarkers = false
     }
 
     func mayContainInstall(_ line: UnsafeRawBufferPointer) -> Bool {
-        guard markers.allSatisfy({ Self.contains(line, $0) }) else { return false }
+        let hasMarker = requiresAllMarkers
+            ? markers.allSatisfy { Self.contains(line, $0) }
+            : markers.contains { Self.contains(line, $0) }
+        guard hasMarker else { return false }
         return Self.managerTokens.contains { Self.contains(line, $0) }
     }
 

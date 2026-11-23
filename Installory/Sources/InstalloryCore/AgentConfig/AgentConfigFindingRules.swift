@@ -416,27 +416,30 @@ struct AgentConfigFindingRules {
             }
             guard !covered else { continue }
 
-            let projectName = project.lastPathComponent
-            let explanation: String
-            let fix: String
-            let mainClaude = claudeFiles.first { $0.kind == .claudeMd }
-            if let mainClaude {
-                let claudeName = mainClaude.path.path.hasSuffix(".claude/CLAUDE.md") ? ".claude/CLAUDE.md" : "CLAUDE.md"
-                let importLine = claudeName == "CLAUDE.md" ? "@AGENTS.md" : "@../AGENTS.md"
-                explanation = """
-                “\(projectName)” has an AGENTS.md file with instructions for AI agents. Codex, opencode, \
-                Cursor and others read it, but Claude Code only reads CLAUDE.md — and this project's \
-                \(claudeName) doesn't include AGENTS.md. So Claude Code isn't following those instructions.
-                """
-                fix = "Add a line `\(importLine)` to \(claudeName). Claude Code will then load AGENTS.md too."
-            } else {
-                explanation = """
-                “\(projectName)” has an AGENTS.md file with instructions for AI agents. Codex, opencode, \
-                Cursor and others read it, but Claude Code only reads CLAUDE.md, which this project doesn't \
-                have. So Claude Code isn't following those instructions.
-                """
-                fix = "Create a file named CLAUDE.md next to AGENTS.md containing the single line `@AGENTS.md`."
+            // Claude Code (2.1.277 and later) reads AGENTS.md itself when the
+            // project has no CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md
+            // (code.claude.com/docs/en/memory). Only a project that has one of
+            // those, without importing AGENTS.md, leaves AGENTS.md unread.
+            guard let claudeFile = claudeFiles.first(where: { $0.kind == .claudeMd }) ?? claudeFiles.first else {
+                continue
             }
+            let projectName = project.lastPathComponent
+            let claudeName: String
+            if claudeFile.kind == .claudeLocalMd {
+                claudeName = "CLAUDE.local.md"
+            } else if claudeFile.path.path.hasSuffix(".claude/CLAUDE.md") {
+                claudeName = ".claude/CLAUDE.md"
+            } else {
+                claudeName = "CLAUDE.md"
+            }
+            let importLine = claudeName == ".claude/CLAUDE.md" ? "@../AGENTS.md" : "@AGENTS.md"
+            let explanation = """
+            “\(projectName)” has an AGENTS.md file with instructions for AI agents. Codex, opencode, \
+            Cursor and others read it. Claude Code reads AGENTS.md only when a project has no CLAUDE.md; \
+            this project has \(claudeName), which doesn't include AGENTS.md, so Claude Code isn't \
+            following those instructions.
+            """
+            let fix = "Add a line `\(importLine)` to \(claudeName). Claude Code will then load AGENTS.md too."
             findings.append(AgentConfigFinding(
                 id: "agentsMdNotReadByClaude:\(project.path)",
                 kind: .agentsMdNotReadByClaude,
