@@ -72,10 +72,10 @@ public struct NarrativeRenderer: Sendable {
     ) -> String {
         let dateStr = attribution.timestamp.map { formatDate($0) } ?? "an unknown date"
         let summary: String
+        // The user's first prompt is never shown or kept (it can hold
+        // anything they pasted); only the session's own summary is used.
         if let s = attribution.sessionSummary {
             summary = " That session was about: \(s)."
-        } else if let msg = attribution.firstUserMessage {
-            summary = " You'd asked: \"\(msg)\"."
         } else {
             summary = ""
         }

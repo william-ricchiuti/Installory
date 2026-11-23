@@ -115,6 +115,9 @@ public struct CheckupInput: Sendable, Equatable {
     /// arguments, agent settings `env`). nil = not checked. Project `.env`
     /// files are not part of this count.
     public var exposedSecretCount: Int?
+    /// AI tool settings files that couldn't be read (too large, invalid or
+    /// refused). Keys in them weren't checked, so "no keys" can't be claimed.
+    public var unreadableSettingsFileCount: Int
     public var reclaimableBytes: Int64
     public var safeToRemoveCount: Int
     public var coverageGaps: [CheckupCoverageGap]
@@ -127,6 +130,7 @@ public struct CheckupInput: Sendable, Equatable {
         aiInstalledThisWeekCount: Int = 0,
         agentFindings: CheckupFindingCounts? = nil,
         exposedSecretCount: Int? = nil,
+        unreadableSettingsFileCount: Int = 0,
         reclaimableBytes: Int64 = 0,
         safeToRemoveCount: Int = 0,
         coverageGaps: [CheckupCoverageGap] = []
@@ -138,6 +142,7 @@ public struct CheckupInput: Sendable, Equatable {
         self.aiInstalledThisWeekCount = aiInstalledThisWeekCount
         self.agentFindings = agentFindings
         self.exposedSecretCount = exposedSecretCount
+        self.unreadableSettingsFileCount = unreadableSettingsFileCount
         self.reclaimableBytes = reclaimableBytes
         self.safeToRemoveCount = safeToRemoveCount
         self.coverageGaps = coverageGaps
@@ -340,6 +345,17 @@ public enum Checkup {
                 headline: count(exposed, "key") + " in AI tool settings",
                 detail: "Some API keys are written in plain text in your AI tools' settings, where other programs could read them; replace them with new keys and store them somewhere safer.",
                 action: .reviewKeys
+            )
+        }
+
+        if input.unreadableSettingsFileCount > 0 {
+            let files = count(input.unreadableSettingsFileCount, "settings file")
+            return CheckupRow(
+                area: .secrets,
+                status: .unknown,
+                headline: "Not fully checked",
+                detail: "No keys found, but \(files) couldn't be read (too large or not valid), so keys in \(input.unreadableSettingsFileCount == 1 ? "it weren't" : "them weren't") checked. AI Setup lists which.",
+                action: .reviewAITools
             )
         }
 

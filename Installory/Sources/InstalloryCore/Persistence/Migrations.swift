@@ -1,3 +1,4 @@
+import Foundation
 import GRDB
 
 /// Append-only migration definitions for the Installory SQLite database.
@@ -26,6 +27,7 @@ public enum Migrations {
         migrator.registerMigration("v3_package_user_state", migrate: v3PackageUserState)
         migrator.registerMigration("v4_package_summary", migrate: v4PackageSummary)
         migrator.registerMigration("v5_provenance_file_cache", migrate: v5ProvenanceFileCache)
+        migrator.registerMigration("v6_redact_stored_history", migrate: v6RedactStoredHistory)
         return migrator
     }
 
@@ -136,5 +138,48 @@ public enum Migrations {
                 PRIMARY KEY (source, path)
             )
             """)
+    }
+
+    /// 1.6.1: Install History no longer keeps the user's first prompt, and its
+    /// redaction rules now catch more credential shapes. Rewrites every stored
+    /// evidence row through the current redactor (which drops the prompt) and
+    /// clears the per-file cache, whose payloads were redacted by the older
+    /// rules; the cache rebuilds on the next Install History run.
+    private static func v6RedactStoredHistory(_ db: GRDB.Database) throws {
+        let rows = try Row.fetchAll(db, sql: "SELECT package_id, payload FROM provenance_evidence")
+        for row in rows {
+            let packageID: String = row["package_id"]
+            if let evidence = try? ProvenanceEvidence(row: row) {
+                // Decoding redacts; saving re-encodes only the redacted form.
+                try evidence.update(db)
+                continue
+            }
+            // A payload the current model can't decode: at least remove the
+            // first prompt from the raw JSON.
+            let payload: String = row["payload"]
+            guard let data = payload.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data),
+                  let stripped = try? JSONSerialization.data(withJSONObject: removingFirstUserMessage(object)),
+                  let text = String(data: stripped, encoding: .utf8) else { continue }
+            try db.execute(
+                sql: "UPDATE provenance_evidence SET payload = ? WHERE package_id = ?",
+                arguments: [text, packageID]
+            )
+        }
+        try db.execute(sql: "DELETE FROM provenance_file_cache")
+    }
+
+    private static func removingFirstUserMessage(_ value: Any) -> Any {
+        if var dictionary = value as? [String: Any] {
+            dictionary.removeValue(forKey: "firstUserMessage")
+            for (key, nested) in dictionary {
+                dictionary[key] = removingFirstUserMessage(nested)
+            }
+            return dictionary
+        }
+        if let array = value as? [Any] {
+            return array.map(removingFirstUserMessage)
+        }
+        return value
     }
 }

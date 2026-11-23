@@ -58,9 +58,10 @@ public struct ProvenanceRedactor: Sendable {
             sessionSummary: context.sessionSummary.map {
                 redactText($0, maximumLength: 512)
             },
-            firstUserMessage: context.firstUserMessage.map {
-                redactText($0, maximumLength: 512)
-            },
+            // The user's first prompt is free text that can hold anything they
+            // pasted (keys, personal details). It isn't needed to match an
+            // install, so it is never kept.
+            firstUserMessage: nil,
             bashInvocation: redactText(context.bashInvocation, maximumLength: 2_048),
             timestamp: context.timestamp
         )
@@ -75,9 +76,10 @@ public struct ProvenanceRedactor: Sendable {
             sessionSummary: context.sessionSummary.map {
                 redactText($0, maximumLength: 512)
             },
-            firstUserMessage: context.firstUserMessage.map {
-                redactText($0, maximumLength: 512)
-            },
+            // The user's first prompt is free text that can hold anything they
+            // pasted (keys, personal details). It isn't needed to match an
+            // install, so it is never kept.
+            firstUserMessage: nil,
             bashInvocation: redactText(context.bashInvocation, maximumLength: 2_048),
             timestamp: context.timestamp
         )
@@ -92,9 +94,10 @@ public struct ProvenanceRedactor: Sendable {
             sessionSummary: context.sessionSummary.map {
                 redactText($0, maximumLength: 512)
             },
-            firstUserMessage: context.firstUserMessage.map {
-                redactText($0, maximumLength: 512)
-            },
+            // The user's first prompt is free text that can hold anything they
+            // pasted (keys, personal details). It isn't needed to match an
+            // install, so it is never kept.
+            firstUserMessage: nil,
             bashInvocation: redactText(context.bashInvocation, maximumLength: 2_048),
             timestamp: context.timestamp
         )
@@ -106,56 +109,9 @@ public struct ProvenanceRedactor: Sendable {
         var value = boundedForProcessing(text)
         value = minimizeHomePaths(in: value)
 
-        // PEM blocks sometimes reach transcripts through pasted commands/prompts.
-        value = replacing(
-            #"(?is)-----BEGIN [^-\r\n]+ PRIVATE KEY-----.*?-----END [^-\r\n]+ PRIVATE KEY-----"#,
-            in: value,
-            with: "[REDACTED PRIVATE KEY]"
-        )
-
-        // Strip both username and password from credential-bearing URLs while
-        // retaining scheme, host, and path as useful installation context.
-        value = replacing(
-            #"(?i)([a-z][a-z0-9+.-]*://)([^\s/@:]+):([^\s/@]+)@"#,
-            in: value,
-            with: "$1[REDACTED]@"
-        )
-
-        // Handle complete Authorization schemes before the generic key/value
-        // rule can consume only the scheme name and leave the credential.
-        value = replacing(
-            #"(?i)(\b(?:Bearer|Basic)\s+)[A-Za-z0-9._~+/-]{4,}={0,2}"#,
-            in: value,
-            with: "$1[REDACTED]"
-        )
-
-        // Optional namespace prefixes cover common environment names such as
-        // OPENAI_API_KEY, AWS_SECRET_ACCESS_KEY, and NPM_TOKEN.
-        let secretKey = #"(?:[a-z0-9]+[_-])*(?:api[_-]?key|secret[_-]?access[_-]?key|client[_-]?secret|access[_-]?token|session[_-]?token|refresh[_-]?token|private[_-]?token|authorization|password|passwd|pwd|secret|token)"#
-        let boundary = #"(?:^|[\s,;{?&])"#
-
-        // Quoted values first, so spaces inside a quoted secret are removed too.
-        value = replacing(
-            "(?i)(\(boundary)(?:--?)?[\"']?\(secretKey)[\"']?\\s*(?::|=|\\s+)\\s*)[\"'][^\"'\\r\\n]*[\"']",
-            in: value,
-            with: "$1[REDACTED]"
-        )
-        value = replacing(
-            "(?i)(\(boundary)(?:--?)?[\"']?\(secretKey)[\"']?\\s*(?::|=|\\s+)\\s*)[^\\s,;&|}]+",
-            in: value,
-            with: "$1[REDACTED]"
-        )
-        // Common standalone token formats that can appear without a key label.
-        value = replacing(
-            #"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,}|xox[baprs]-[A-Za-z0-9-]{16,}|AKIA[0-9A-Z]{16})\b"#,
-            in: value,
-            with: "[REDACTED]"
-        )
-        value = replacing(
-            #"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b"#,
-            in: value,
-            with: "[REDACTED]"
-        )
+        // Shared rules with the AI Setup audit (keys, tokens, URLs with
+        // credentials, credential flags, webhook URLs, private keys).
+        value = SecretRedaction.redact(value, replacement: "[REDACTED]")
 
         return bounded(value, maximumLength: maximumLength)
     }
@@ -171,6 +127,13 @@ public struct ProvenanceRedactor: Sendable {
             value = replacing("\(escapedHome)(?=/|$)", in: value, with: "~")
         }
         // Also protect evidence imported from another account or an older Mac.
+        // A user name may contain spaces (`/Users/John Smith/…`): allow up to
+        // three space-separated words when a `/` follows directly.
+        value = replacing(
+            #"(?<![A-Za-z0-9._-])/(?:Users|home)/[^/\s\"']+(?: [^/\s\"']+){1,3}(?=/)"#,
+            in: value,
+            with: "~"
+        )
         return replacing(
             #"(?<![A-Za-z0-9._-])/(?:Users|home)/[^/\s\"']+(?=/|$)"#,
             in: value,

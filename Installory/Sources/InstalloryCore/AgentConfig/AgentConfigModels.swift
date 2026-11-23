@@ -466,6 +466,16 @@ public struct AgentConfigAudit: Sendable, Equatable {
         self.unreadableFiles = unreadableFiles
     }
 
+    /// AI tool settings files (not instruction files) that were too large,
+    /// unreadable or invalid. Keys written in them weren't checked.
+    public var unreadableSettingsFileCount: Int {
+        unreadableFiles.filter { file in
+            let name = file.path.lastPathComponent.lowercased()
+            return !(name.hasSuffix(".md") || name.hasSuffix(".mdc")
+                || name == ".cursorrules" || name == ".windsurfrules")
+        }.count
+    }
+
     public var mcpFindings: [AgentConfigFinding] {
         findings.filter { $0.category == .mcpServers }
     }

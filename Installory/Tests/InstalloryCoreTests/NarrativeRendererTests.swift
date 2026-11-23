@@ -94,7 +94,7 @@ struct NarrativeRendererTests {
         #expect(!result.contains("You'd asked:"))
     }
 
-    @Test("Claude Code case with no summary but firstUserMessage renders user-message clause")
+    @Test("Claude Code case with no summary never shows the user's first prompt")
     func claudeCodeWithUserMessageOnly() {
         let context = makeContext(
             date: oldDate,
@@ -103,7 +103,8 @@ struct NarrativeRendererTests {
         )
         let evidence = makeEvidence(context: context)
         let result = renderer.render(evidence, package: makePackage())
-        #expect(result.contains("You'd asked: \"help me build a podcast app\"."))
+        #expect(!result.contains("help me build a podcast app"))
+        #expect(!result.contains("You'd asked:"))
         #expect(!result.contains("That session was about:"))
     }
 
