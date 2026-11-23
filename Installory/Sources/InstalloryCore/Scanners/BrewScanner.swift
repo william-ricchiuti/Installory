@@ -103,6 +103,16 @@ public struct BrewScanner: PackageScanner, Sendable {
             }
             try Task.checkCancellation()
 
+            // Homebrew 4.x keeps a cask's single receipt in
+            // `Caskroom/<token>/.metadata/INSTALL_RECEIPT.json`; the version
+            // folder only holds the staged app or pkg. Formulae keep one
+            // receipt per keg. A per-version receipt still wins when present.
+            let sharedReceipt = manager == .brewCask
+                ? readReceipt(at: nameDir
+                    .appendingPathComponent(".metadata", isDirectory: true)
+                    .appendingPathComponent("INSTALL_RECEIPT.json"))
+                : nil
+
             // Collect all valid (versionDir, receipt) pairs, then pick the latest.
             // Multiple version directories arise when Homebrew retains old keg links;
             // emitting one Package per name prevents duplicate SwiftUI List IDs.
@@ -112,8 +122,7 @@ public struct BrewScanner: PackageScanner, Sendable {
                 let version = versionDir.lastPathComponent
                 guard !version.hasPrefix(".") else { continue }
                 let receiptURL = versionDir.appendingPathComponent("INSTALL_RECEIPT.json")
-                guard let receiptData = try? directoryAccess.data(contentsOf: receiptURL),
-                      let receipt = try? receiptDecoder.decode(InstallReceipt.self, from: receiptData) else {
+                guard let receipt = readReceipt(at: receiptURL) ?? sharedReceipt else {
                     continue
                 }
                 candidates.append((versionDir: versionDir, receipt: receipt))
@@ -151,15 +160,30 @@ public struct BrewScanner: PackageScanner, Sendable {
                 return best
             case nil:
                 // Non-numeric components differ — fall back to mtime.
-                let bestMtime = directoryAccess.modificationDate(
-                    at: best.versionDir.appendingPathComponent("INSTALL_RECEIPT.json")
-                ) ?? .distantPast
-                let candMtime = directoryAccess.modificationDate(
-                    at: candidate.versionDir.appendingPathComponent("INSTALL_RECEIPT.json")
-                ) ?? .distantPast
+                let bestMtime = versionDate(best.versionDir)
+                let candMtime = versionDate(candidate.versionDir)
                 return candMtime > bestMtime ? candidate : best
             }
         }
+    }
+
+    /// A version folder's age for tie-breaking: its receipt's mtime when it
+    /// has one (formulae), otherwise the folder's own mtime (casks).
+    private func versionDate(_ versionDir: URL) -> Date {
+        directoryAccess.modificationDate(at: versionDir.appendingPathComponent("INSTALL_RECEIPT.json"))
+            ?? directoryAccess.modificationDate(at: versionDir)
+            ?? .distantPast
+    }
+
+    /// Reads and parses a receipt with a size bound. Returns nil when the file
+    /// is missing, too large, not a regular file, or not a JSON object.
+    private func readReceipt(at url: URL) -> InstallReceipt? {
+        guard let data = try? directoryAccess.data(
+            contentsOf: url,
+            maximumBytes: InstallReceipt.maximumBytes,
+            from: .prefix
+        ) else { return nil }
+        return InstallReceipt.parse(data)
     }
 
     private func makePackage(
@@ -173,7 +197,7 @@ public struct BrewScanner: PackageScanner, Sendable {
     ) async throws -> Package {
         let id = "\(manager.rawValue)::\(name)"
         let installedAt = receipt.time.map { Date(timeIntervalSince1970: $0) }
-        let deps = receipt.runtimeDependencies?.map(\.name) ?? []
+        let deps = receipt.dependencyNames
         let isExplicit = receipt.installedOnRequest ?? !(receipt.installedAsDependency ?? false)
         let artifactPaths = manager == .brewCask ? receipt.artifactPaths : nil
         try Task.checkCancellation()
@@ -268,54 +292,102 @@ private func compareVersionStrings(_ a: String, _ b: String) -> ComparisonResult
 
 // MARK: - Receipt format
 
-private let receiptDecoder = JSONDecoder()
+/// The fields Installory uses from a Homebrew `INSTALL_RECEIPT.json`.
+///
+/// Parsed leniently with `JSONSerialization` because receipt shapes vary by
+/// Homebrew version and by formula vs cask: `runtime_dependencies` is an array
+/// for formulae and a `{"formula": [...], "cask": [...]}` dictionary for casks,
+/// and cask artifacts mix strings with option objects such as
+/// `{"target": "Name.app"}`. Unknown or unexpected values are skipped rather
+/// than failing the whole receipt.
+struct InstallReceipt {
+    /// Receipts are a few kilobytes; anything far larger isn't a receipt.
+    static let maximumBytes = 4 * 1024 * 1024
 
-private struct InstallReceipt: Decodable {
     let time: Double?
     let installedOnRequest: Bool?
     let installedAsDependency: Bool?
-    let runtimeDependencies: [RuntimeDep]?
-    let artifacts: [Artifact]?
+    /// Formula (and, for casks, cask) dependency names, tap prefixes removed.
+    let dependencyNames: [String]
+    /// App bundle names a cask installs (the `target` when one is given).
+    let appPaths: [String]
+    /// User-data paths a cask's `zap` stanza would trash.
+    let zapTrashPaths: [String]
 
     var artifactPaths: [String]? {
-        let paths = artifacts?.flatMap(\.paths) ?? []
+        let paths = appPaths + zapTrashPaths
         return paths.isEmpty ? nil : paths
     }
 
-    var appPaths: [String] {
-        artifacts?.flatMap { $0.app ?? [] } ?? []
-    }
+    static func parse(_ data: Data) -> InstallReceipt? {
+        guard let object = try? JSONSerialization.jsonObject(with: data),
+              let root = object as? [String: Any] else { return nil }
 
-    struct RuntimeDep: Decodable {
-        let fullName: String
-
-        var name: String {
-            fullName.components(separatedBy: "/").last ?? fullName
+        let artifacts = (root["uninstall_artifacts"] as? [Any]) ?? (root["artifacts"] as? [Any]) ?? []
+        var apps: [String] = []
+        var zap: [String] = []
+        for case let artifact as [String: Any] in artifacts {
+            if let values = artifact["app"] as? [Any] {
+                if let app = appName(from: values) { apps.append(app) }
+            }
+            if let stanzas = artifact["zap"] as? [Any] {
+                for case let stanza as [String: Any] in stanzas {
+                    zap += strings(stanza["trash"])
+                }
+            }
         }
 
-        enum CodingKeys: String, CodingKey {
-            case fullName = "full_name"
+        return InstallReceipt(
+            time: (root["time"] as? NSNumber)?.doubleValue,
+            installedOnRequest: bool(root["installed_on_request"]),
+            installedAsDependency: bool(root["installed_as_dependency"]),
+            dependencyNames: dependencyNames(root["runtime_dependencies"]),
+            appPaths: apps,
+            zapTrashPaths: zap
+        )
+    }
+
+    /// `[{"full_name": "homebrew/core/zlib"}, …]` or
+    /// `{"formula": [{"full_name": …}], "cask": [{"full_name": …}]}`.
+    private static func dependencyNames(_ value: Any?) -> [String] {
+        var entries: [Any] = []
+        if let array = value as? [Any] {
+            entries = array
+        } else if let dictionary = value as? [String: Any] {
+            entries = (dictionary["formula"] as? [Any] ?? []) + (dictionary["cask"] as? [Any] ?? [])
         }
-    }
-
-    struct Artifact: Decodable {
-        let app: [String]?
-        let zap: [Zap]?
-
-        var paths: [String] {
-            (app ?? []) + (zap ?? []).flatMap(\.trash)
+        var names: [String] = []
+        for case let entry as [String: Any] in entries {
+            guard let fullName = entry["full_name"] as? String, !fullName.isEmpty else { continue }
+            let name = fullName.components(separatedBy: "/").last ?? fullName
+            if !name.isEmpty, !names.contains(name) { names.append(name) }
         }
+        return names
     }
 
-    struct Zap: Decodable {
-        let trash: [String]
+    /// An `app` artifact is `["Source.app"]` or `["Source.app", {"target": "Name.app"}]`.
+    /// The app lands in /Applications under the target name, or under the
+    /// source's last path component (`AeroSpace-v1/AeroSpace.app` → `AeroSpace.app`).
+    private static func appName(from values: [Any]) -> String? {
+        for case let options as [String: Any] in values {
+            if let target = options["target"] as? String, !target.isEmpty {
+                return (target as NSString).lastPathComponent
+            }
+        }
+        for case let source as String in values where !source.isEmpty {
+            return (source as NSString).lastPathComponent
+        }
+        return nil
     }
 
-    enum CodingKeys: String, CodingKey {
-        case time
-        case installedOnRequest = "installed_on_request"
-        case installedAsDependency = "installed_as_dependency"
-        case runtimeDependencies = "runtime_dependencies"
-        case artifacts
+    private static func strings(_ value: Any?) -> [String] {
+        if let string = value as? String { return [string] }
+        if let array = value as? [Any] { return array.compactMap { $0 as? String } }
+        return []
+    }
+
+    private static func bool(_ value: Any?) -> Bool? {
+        guard let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() else { return nil }
+        return number.boolValue
     }
 }

@@ -41,12 +41,14 @@ extension [Package] {
         var reverseDependents: [DependencyKey: Set<String>] = [:]
         for pkg in self {
             for dep in pkg.dependencies {
-                let key = DependencyKey(
-                    manager: pkg.manager,
-                    qualifier: pkg.qualifier,
-                    name: dep
-                )
-                reverseDependents[key, default: []].insert(pkg.id)
+                for scope in PackageIdentity.dependencyScopes(of: pkg) {
+                    let key = DependencyKey(
+                        manager: scope.manager,
+                        qualifier: scope.qualifier,
+                        name: dep
+                    )
+                    reverseDependents[key, default: []].insert(pkg.id)
+                }
             }
         }
 
@@ -97,6 +99,16 @@ private struct DependencyKey: Hashable {
 /// Shared package-name identity rules used when comparing scanner output with
 /// package-manager metadata or install commands.
 enum PackageIdentity {
+    /// Where a package's dependency names point. Usually its own manager and
+    /// qualifier; a Homebrew cask's receipt lists both formula and cask
+    /// dependencies by name, so its names are matched against both.
+    static func dependencyScopes(of package: Package) -> [(manager: PackageManager, qualifier: String?)] {
+        if package.manager == .brewCask {
+            return [(.brewCask, package.qualifier), (.brew, nil)]
+        }
+        return [(package.manager, package.qualifier)]
+    }
+
     static func normalizedName(_ name: String, manager: PackageManager) -> String {
         switch manager {
         case .pip, .pipx, .uv:
