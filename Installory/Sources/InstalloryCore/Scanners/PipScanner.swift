@@ -13,6 +13,7 @@ public struct PipScanner: PackageScanner, Sendable {
     public let manager: PackageManager = .pip
 
     private let discovery: PythonInterpreterDiscovery
+    private let denials = PermissionDenialRecorder()
     private let parser: DistInfoParser
     private let directoryAccess: any DirectoryAccessProvider
 
@@ -36,6 +37,7 @@ public struct PipScanner: PackageScanner, Sendable {
 
     public func scan() async throws -> [Package] {
         try Task.checkCancellation()
+        denials.reset()
         var seen: Set<String> = []
         var packages: [Package] = []
         var sizer = BoundedDirectorySizer(directoryAccess: directoryAccess)
@@ -47,6 +49,10 @@ public struct PipScanner: PackageScanner, Sendable {
             packages += found.filter { seen.insert($0.id).inserted }
         }
         try Task.checkCancellation()
+        if packages.isEmpty, discovery.sawPermissionDenial {
+            denials.recordDenial()
+        }
+        try denials.throwIfNothingFoundBecauseDenied(foundNothing: packages.isEmpty)
         return packages
     }
 
@@ -76,7 +82,7 @@ public struct PipScanner: PackageScanner, Sendable {
         sizer: inout BoundedDirectorySizer
     ) async throws -> [Package] {
         try Task.checkCancellation()
-        let entries = directoryAccess.directoryContentsOrEmpty(at: sitePackages)
+        let entries = denials.contents(of: sitePackages, using: directoryAccess)
         try Task.checkCancellation()
         var packages: [Package] = []
         for entry in entries.sorted(by: { $0.path < $1.path })

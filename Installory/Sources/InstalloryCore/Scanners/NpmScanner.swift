@@ -17,6 +17,8 @@ public struct NpmScanner: PackageScanner, Sendable {
     private let homeDirectory: URL
     private let environment: PackageManagerEnvironment
 
+    private let denials = PermissionDenialRecorder()
+
     public init(
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
         homeDirectory: URL = UserHome.directory,
@@ -44,6 +46,7 @@ public struct NpmScanner: PackageScanner, Sendable {
 
     public func scan() async throws -> [Package] {
         try Task.checkCancellation()
+        denials.reset()
         let candidates = try nodeModulesDirs()
         let nodeModulesDirectories = try deduplicatedNodeModulesDirs(candidates)
         var sizer = BoundedDirectorySizer(directoryAccess: directoryAccess)
@@ -61,6 +64,7 @@ public struct NpmScanner: PackageScanner, Sendable {
         }
         let sortedPackages = packages.sorted { $0.id < $1.id }
         try Task.checkCancellation()
+        try denials.throwIfNothingFoundBecauseDenied(foundNothing: sortedPackages.isEmpty)
         return sortedPackages
     }
 
@@ -81,7 +85,7 @@ public struct NpmScanner: PackageScanner, Sendable {
             fallback: homeDirectory.appendingPathComponent(".nvm")
         )
         let nvmRoot = nvmDirectory.appendingPathComponent("versions/node")
-        let nvmVersions = directoryAccess.directoryContentsOrEmpty(at: nvmRoot)
+        let nvmVersions = denials.contents(of: nvmRoot, using: directoryAccess)
             .sorted(by: { $0.path < $1.path })
         try Task.checkCancellation()
         for version in nvmVersions {
@@ -91,7 +95,7 @@ public struct NpmScanner: PackageScanner, Sendable {
 
         // Volta: ~/.volta/tools/image/node/*/lib/node_modules — sorted for stable qualifier assignment
         let voltaRoot = homeDirectory.appendingPathComponent(".volta/tools/image/node")
-        let voltaVersions = directoryAccess.directoryContentsOrEmpty(at: voltaRoot)
+        let voltaVersions = denials.contents(of: voltaRoot, using: directoryAccess)
             .sorted(by: { $0.path < $1.path })
         try Task.checkCancellation()
         for version in voltaVersions {
@@ -124,7 +128,7 @@ public struct NpmScanner: PackageScanner, Sendable {
         sizer: inout BoundedDirectorySizer
     ) async throws -> [Package] {
         try Task.checkCancellation()
-        let entries = directoryAccess.directoryContentsOrEmpty(at: nodeModulesDir)
+        let entries = denials.contents(of: nodeModulesDir, using: directoryAccess)
         try Task.checkCancellation()
         var packages: [Package] = []
         var seenResolvedPaths: Set<String> = []

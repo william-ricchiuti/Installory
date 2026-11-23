@@ -13,6 +13,8 @@ public struct PipxScanner: PackageScanner, Sendable {
     private let homeDirectory: URL
     private let environment: PackageManagerEnvironment
 
+    private let denials = PermissionDenialRecorder()
+
     public init(
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
         parser: DistInfoParser? = nil,
@@ -37,9 +39,10 @@ public struct PipxScanner: PackageScanner, Sendable {
 
     public func scan() async throws -> [Package] {
         try Task.checkCancellation()
+        denials.reset()
         var sizer = BoundedDirectorySizer(directoryAccess: directoryAccess)
         var packages: [Package] = []
-        for venv in directoryAccess.directoryContentsOrEmpty(at: venvsRoot)
+        for venv in denials.contents(of: venvsRoot, using: directoryAccess)
             .sorted(by: { $0.path < $1.path }) {
             try Task.checkCancellation()
             if let package = try await packageForToolVenv(venv, sizer: &sizer) {
@@ -47,6 +50,7 @@ public struct PipxScanner: PackageScanner, Sendable {
             }
         }
         try Task.checkCancellation()
+        try denials.throwIfNothingFoundBecauseDenied(foundNothing: packages.isEmpty)
         return packages
     }
 

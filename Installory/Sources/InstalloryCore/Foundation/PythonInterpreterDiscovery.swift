@@ -113,6 +113,7 @@ public struct PythonInterpreterDiscovery: Sendable {
     private let homeDirectory: URL
     private let environment: PackageManagerEnvironment
     private let cache = DiscoveryCache()
+    private let denials = PermissionDenialRecorder()
 
     public init(
         directoryAccess: any DirectoryAccessProvider = SystemDirectoryAccessProvider(),
@@ -143,6 +144,10 @@ public struct PythonInterpreterDiscovery: Sendable {
         cache.value = result
         return result
     }
+
+    /// True when a folder discovery looked in refused read permission, so an
+    /// empty or short interpreter list may be incomplete rather than real.
+    public var sawPermissionDenial: Bool { denials.sawDenial }
 
     private func computeDiscover() -> [PythonInterpreter] {
         var candidates: [Candidate] = []
@@ -426,7 +431,7 @@ public struct PythonInterpreterDiscovery: Sendable {
 
     private func cancellableDirectoryContents(at url: URL) -> [URL] {
         guard !Task.isCancelled else { return [] }
-        return directoryAccess.directoryContentsOrEmpty(at: url)
+        return denials.contents(of: url, using: directoryAccess)
     }
 
     private func pythonExecutables(in bin: URL) -> [URL] {
