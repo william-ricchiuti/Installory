@@ -70,3 +70,57 @@ func assembleSubshellScript(header: [String], body: [String]) -> String {
     out.append(")")
     return out.joined(separator: "\n") + "\n"
 }
+
+/// Marker lines `ScriptGenerator` puts in its flat list of body lines to show
+/// where each group of commands starts and ends. They never reach the output.
+let shellGroupEndMarker = "\u{1}installory-group-end"
+func shellGroupStartMarker(label: String) -> String { "\u{1}installory-group-start:" + label }
+
+/// Explains the grouped layout in every generated cleanup script header.
+let shellGroupedExplanationLines = [
+    "#",
+    "# Each group of commands below runs in its own ( ... ) subshell. A group stops",
+    "# at its first error, the other groups still run, and the script lists any",
+    "# group that failed at the end. Pasting this script can't change your Terminal",
+    "# session. You can also save it and run: bash <file>.sh",
+]
+
+/// Assembles a cleanup script: header comments at the top level, then one
+/// outer `( … )` subshell (so pasting never changes the user's shell). Inside
+/// it, every group of commands runs in its own strict-mode subshell; a failing
+/// group is recorded and the remaining groups still run. The script ends by
+/// naming the groups that failed and exiting non-zero if any did.
+func assembleGroupedScript(header: [String], body: [String]) -> String {
+    var out = header
+    out.append(contentsOf: shellGroupedExplanationLines)
+    out.append("(")
+    out.append("failed=()")
+    var openLabel: String?
+    func closeGroup() {
+        guard let label = openLabel else { return }
+        out.append(") || failed+=(\"\(shellDoubleQuoteEscape(shellCommentText(label)))\")")
+        openLabel = nil
+    }
+    let startPrefix = shellGroupStartMarker(label: "")
+    for line in body {
+        if line == shellGroupEndMarker {
+            closeGroup()
+        } else if line.hasPrefix(startPrefix) {
+            closeGroup()
+            openLabel = String(line.dropFirst(startPrefix.count))
+            out.append("(")
+            out.append("set -euo pipefail")
+        } else {
+            out.append(line)
+        }
+    }
+    closeGroup()
+    out.append("")
+    out.append("if [ ${#failed[@]} -gt 0 ]; then")
+    out.append("  echo \"Stopped with an error in: ${failed[*]}\" >&2")
+    out.append("  exit 1")
+    out.append("fi")
+    out.append("echo \"Done.\"")
+    out.append(")")
+    return out.joined(separator: "\n") + "\n"
+}
