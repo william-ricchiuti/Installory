@@ -49,6 +49,7 @@ struct UvIntegrationTests {
     private func activeLines(containing needle: String, in script: String) -> [String] {
         script.split(separator: "\n").map(String.init).filter { line in
             line.contains(needle) && !line.hasPrefix("#") && !line.hasPrefix("echo ")
+                && !line.hasPrefix(") || failed+=(")
         }
     }
 

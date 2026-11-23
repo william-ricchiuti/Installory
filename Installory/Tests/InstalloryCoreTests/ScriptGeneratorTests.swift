@@ -52,7 +52,7 @@ struct ScriptGeneratorTests {
         let script = result.scriptText
 
         #expect(script.hasPrefix("#!/usr/bin/env bash\n"))
-        #expect(script.contains("set -euo pipefail"))
+        #expect(script.contains("failed=()"))
         #expect(result.skippedReadOnly.isEmpty)
         #expect(result.warnedDenylisted.isEmpty)
 
@@ -365,7 +365,7 @@ struct ScriptGeneratorTests {
     // MARK: - Preamble correctness
 
     @Test func scriptUsesStrictBashPreamble() {
-        let result = generator.generate(packages: [])
+        let result = generator.generate(packages: [makePackage(manager: .brew, name: "jq")])
         #expect(result.scriptText.contains("set -euo pipefail"))
         // Must NOT use the weaker "set -e" alone on its own line
         let strictLine = lines(of: result.scriptText).contains("set -euo pipefail")
@@ -471,9 +471,12 @@ struct ScriptGeneratorTests {
     }
 
     @Test func removalCommandPipWithQualifier() {
-        let interpreter = "/opt/homebrew/bin/python3.12"
+        let interpreter = "/Users/x/.pyenv/versions/3.12.1/bin/python3.12"
         let pkg = makePackage(manager: .pip, name: "requests", qualifier: interpreter)
-        #expect(generator.removalCommand(for: pkg) == #"/opt/homebrew/bin/python3.12 -m pip uninstall -y requests"#)
+        #expect(generator.removalCommand(for: pkg) == #"/Users/x/.pyenv/versions/3.12.1/bin/python3.12 -m pip uninstall -y requests"#)
+        // Homebrew's Python is protected (PEP 668): explained, not run.
+        let homebrew = makePackage(manager: .pip, name: "requests", qualifier: "/opt/homebrew/bin/python3.12")
+        #expect(generator.removalCommand(for: homebrew)?.hasPrefix("# requests: Homebrew's Python") == true)
     }
 
     @Test func removalCommandPipNoQualifierFallsBackToPython3() {
@@ -961,7 +964,8 @@ struct ScriptGeneratorTrashTests {
         let mv = activeLines(script, prefix: "mv ")
         #expect(mv.count == 1)
         #expect(mv[0].contains("/Users/x/.vscode/extensions/prettier-vscode-1.2.3"))
-        #expect(mv[0].hasSuffix("/prettier-vscode"))
+        // Named after the extension's own folder, never the manifest name.
+        #expect(mv[0].hasSuffix("/prettier-vscode-1.2.3"))
     }
 
     @Test("trash mode still uninstalls package-manager packages")
@@ -987,7 +991,7 @@ struct ScriptGeneratorTrashTests {
         let withSkill = generator.generate(packages: [skill, brew], strategy: .trash).scriptText
         let mkdirs = activeLines(withSkill, prefix: "mkdir -p ")
         #expect(mkdirs.count == 1)
-        #expect(mkdirs[0].hasPrefix("mkdir -p $HOME/.Trash/installory-"))
+        #expect(mkdirs[0].hasPrefix(#"mkdir -p "$HOME/.Trash/installory-"#))
 
         let withoutSkill = generator.generate(packages: [brew], strategy: .trash).scriptText
         #expect(activeLines(withoutSkill, prefix: "mkdir -p ").isEmpty)

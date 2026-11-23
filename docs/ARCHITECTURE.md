@@ -209,10 +209,18 @@ reviews it in a sheet, then copies or saves it. Installory never runs it.
 - Strategies: uninstall via the manager, or Move to Trash for file-backed
   items; `isRemovalScriptEligible(strategy:)` decides per package, and
   comment-only rows are not eligible.
-- Every executable line runs inside a `( … )` subshell with strict mode, so a
-  failing command ends only the subshell and pasting cannot change or close
-  the user's shell. The script sheet adds a "How to run this" section that
-  recommends saving the file and running it with `bash`.
+- Every executable line runs inside one outer `( … )` subshell, so pasting
+  cannot change or close the user's shell. Inside it, each manager group
+  (and each Python, Node or Ruby installation) runs in its own strict-mode
+  subshell: a group stops at its first error, the other groups still run,
+  and the script ends by naming the groups that failed. The script sheet
+  adds a "How to run this" section that recommends saving the file and
+  running it with `bash`.
+- Move to Trash names each item after its own folder (never package
+  metadata), unique within the script, under a quoted
+  `"$HOME/.Trash/installory-<time>"`. Package names starting with `-`, and
+  pip packages on Homebrew's Python (PEP 668), get an explanatory comment
+  instead of a command and are not eligible for cleanup.
 - Bulk cleanup takes a snapshot first; `ReinstallScriptGenerator` produces the
   matching restore script.
 

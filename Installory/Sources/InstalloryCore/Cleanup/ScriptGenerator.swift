@@ -76,6 +76,8 @@ extension Package {
         if strategy == .trash, ScriptGenerator.trashSource(for: self) != nil {
             return true
         }
+        // A name that looks like an option is never passed to a command.
+        if name.hasPrefix("-") { return false }
         switch manager {
         case .uv:
             return UvToolEnvironmentIdentity.target(from: qualifier) != nil
@@ -85,7 +87,9 @@ extension Package {
             return isBrokenAgentSkillLink
         case .editorExtension:
             return ScriptGenerator.editorCommand(for: qualifier) != nil
-        case .brew, .brewCask, .pip, .npm, .pipx, .cargo, .gem, .mas:
+        case .pip:
+            return !ScriptGenerator.isProtectedPython(qualifier)
+        case .brew, .brewCask, .npm, .pipx, .cargo, .gem, .mas:
             return true
         }
     }
@@ -156,13 +160,16 @@ public struct ScriptGenerator: Sendable {
             }
         }
 
-        let trashRoot = "$HOME/.Trash/installory-\(Int(Date().timeIntervalSince1970))"
+        let trash = TrashPlan(
+            root: "\"$HOME/.Trash/installory-\(Int(Date().timeIntervalSince1970))\"",
+            packages: strategy == .trash ? active : []
+        )
         let script = buildScript(
             active: active,
             denylisted: warnedDenylisted,
             snapshot: snapshot,
             strategy: strategy,
-            trashRoot: trashRoot
+            trash: trash
         )
         return GeneratedScript(
             scriptText: script,
@@ -178,19 +185,20 @@ public struct ScriptGenerator: Sendable {
         denylisted: [Package],
         snapshot: SnapshotContext?,
         strategy: RemovalStrategy,
-        trashRoot: String
+        trash: TrashPlan
     ) -> String {
         var header: [String] = []
         appendHeader(to: &header, snapshot: snapshot, strategy: strategy)
         var out: [String] = []
         if strategy == .trash && active.contains(where: { Self.trashSource(for: $0) != nil }) {
-            out.append("mkdir -p \(trashRoot)")
+            out.append("mkdir -p \(trash.root) || failed+=(\"Trash folder\")")
         }
-        appendManagerSections(packages: active, strategy: strategy, trashRoot: trashRoot, to: &out)
+        appendManagerSections(packages: active, strategy: strategy, trash: trash, to: &out)
+        out.append(shellGroupEndMarker)
         if !denylisted.isEmpty {
             appendDenylistSection(packages: denylisted, to: &out)
         }
-        return assembleSubshellScript(header: header, body: out)
+        return assembleGroupedScript(header: header, body: out)
     }
 
     private func appendHeader(to out: inout [String], snapshot: SnapshotContext?, strategy: RemovalStrategy) {
@@ -227,7 +235,7 @@ public struct ScriptGenerator: Sendable {
     private func appendManagerSections(
         packages: [Package],
         strategy: RemovalStrategy,
-        trashRoot: String,
+        trash: TrashPlan,
         to out: inout [String]
     ) {
         let handledSet = Set(Self.managerOrder)
@@ -235,7 +243,7 @@ public struct ScriptGenerator: Sendable {
         for manager in Self.managerOrder {
             let pkgs = packages.filter { $0.manager == manager }
             guard !pkgs.isEmpty else { continue }
-            appendSection(manager: manager, packages: pkgs, strategy: strategy, trashRoot: trashRoot, to: &out)
+            appendSection(manager: manager, packages: pkgs, strategy: strategy, trash: trash, to: &out)
         }
 
         // Any enum case omitted from the preferred order remains deterministic.
@@ -244,7 +252,7 @@ public struct ScriptGenerator: Sendable {
             .sorted { $0.rawValue < $1.rawValue }
         for manager in extra {
             let pkgs = packages.filter { $0.manager == manager }
-            appendSection(manager: manager, packages: pkgs, strategy: strategy, trashRoot: trashRoot, to: &out)
+            appendSection(manager: manager, packages: pkgs, strategy: strategy, trash: trash, to: &out)
         }
     }
 
@@ -252,7 +260,7 @@ public struct ScriptGenerator: Sendable {
         manager: PackageManager,
         packages: [Package],
         strategy: RemovalStrategy,
-        trashRoot: String,
+        trash: TrashPlan,
         to out: inout [String]
     ) {
         if manager.groupsByQualifier {
@@ -263,13 +271,16 @@ public struct ScriptGenerator: Sendable {
             for qualifier in byQualifier.keys.sorted() {
                 let pkgs = byQualifier[qualifier]!
                 let sorted = topologicalSort(pkgs)
+                let header = qualifiedSectionHeader(for: manager, qualifier: qualifier)
+                out.append(shellGroupEndMarker)
                 out.append("")
-                out.append(qualifiedSectionHeader(for: manager, qualifier: qualifier))
+                out.append(header)
+                out.append(shellGroupStartMarker(label: Self.groupLabel(fromHeader: header)))
                 appendCommandLines(
                     sorted: sorted.sorted,
                     cyclePackages: sorted.cyclePackages,
                     strategy: strategy,
-                    trashRoot: trashRoot,
+                    trash: trash,
                     to: &out
                 )
             }
@@ -283,13 +294,16 @@ public struct ScriptGenerator: Sendable {
                     cyclePackages: []
                 )
                 : topologicalSort(packages)
+            let header = sectionHeader(for: manager)
+            out.append(shellGroupEndMarker)
             out.append("")
-            out.append(sectionHeader(for: manager))
+            out.append(header)
+            out.append(shellGroupStartMarker(label: Self.groupLabel(fromHeader: header)))
             appendCommandLines(
                 sorted: sorted.sorted,
                 cyclePackages: sorted.cyclePackages,
                 strategy: strategy,
-                trashRoot: trashRoot,
+                trash: trash,
                 to: &out
             )
         }
@@ -299,16 +313,16 @@ public struct ScriptGenerator: Sendable {
         sorted: [Package],
         cyclePackages: [Package],
         strategy: RemovalStrategy,
-        trashRoot: String,
+        trash: TrashPlan,
         to out: inout [String]
     ) {
         for pkg in sorted {
-            appendSinglePackageLines(for: pkg, strategy: strategy, trashRoot: trashRoot, to: &out)
+            appendSinglePackageLines(for: pkg, strategy: strategy, trash: trash, to: &out)
         }
         if !cyclePackages.isEmpty {
             out.append("# WARNING: dependency cycle detected")
             for pkg in cyclePackages {
-                appendSinglePackageLines(for: pkg, strategy: strategy, trashRoot: trashRoot, to: &out)
+                appendSinglePackageLines(for: pkg, strategy: strategy, trash: trash, to: &out)
             }
         }
     }
@@ -316,7 +330,7 @@ public struct ScriptGenerator: Sendable {
     private func appendSinglePackageLines(
         for pkg: Package,
         strategy: RemovalStrategy,
-        trashRoot: String,
+        trash: TrashPlan,
         to out: inout [String]
     ) {
         if pkg.manager == .mas {
@@ -324,7 +338,7 @@ public struct ScriptGenerator: Sendable {
             return
         }
 
-        if strategy == .trash, let cmd = trashCommand(for: pkg, trashRoot: trashRoot) {
+        if strategy == .trash, let cmd = trashCommand(for: pkg, trash: trash) {
             out.append(shellEchoLine(for: cmd))
             out.append(cmd)
             return
@@ -348,6 +362,11 @@ public struct ScriptGenerator: Sendable {
             out.append(bar)
             let target = pkg.installPath?.path ?? pkg.artifactPaths?.first ?? pkg.name
             out.append("# rm -rf \(shellCommentText(target))")
+            return
+        }
+
+        if pkg.name.hasPrefix("-") {
+            out.append("# \(shellCommentText(pkg.name)): this name starts with \"-\", so a command would read it as an option. Not removed; remove it by hand if you're sure.")
             return
         }
 
@@ -383,9 +402,10 @@ public struct ScriptGenerator: Sendable {
     /// The reversible `mv` command used in trash mode, or nil for packages that have
     /// no file-backed form. Moves the item into a fresh, timestamped folder under
     /// `~/.Trash` so a same-named item already in the Trash is never clobbered.
-    private func trashCommand(for pkg: Package, trashRoot: String) -> String? {
-        guard let source = Self.trashSource(for: pkg) else { return nil }
-        return "mv \(shellArgument(source)) \(trashRoot)/\(shellArgument(pkg.name))"
+    private func trashCommand(for pkg: Package, trash: TrashPlan) -> String? {
+        guard let source = Self.trashSource(for: pkg),
+              let name = trash.names[pkg.id] else { return nil }
+        return "mv \(shellArgument(source)) \(trash.root)/\(shellArgument(name))"
     }
 
     /// The on-disk path trash mode would move for a file-backed row, or nil when
@@ -440,6 +460,11 @@ public struct ScriptGenerator: Sendable {
             return "brew uninstall --cask \(name)"
         case .pip:
             let interpreter = pkg.qualifier ?? "python3"
+            if Self.isProtectedPython(pkg.qualifier) {
+                return "# \(shellCommentText(pkg.name)): Homebrew's Python blocks pip from changing it (PEP 668), so this "
+                    + "line is commented out. If you're sure, remove it with: "
+                    + shellCommentText("\(shellArgument(interpreter)) -m pip uninstall --break-system-packages \(name)")
+            }
             return "\(shellArgument(interpreter)) -m pip uninstall -y \(name)"
         case .npm:
             // Bare `npm` resolves via PATH, which silently targets the wrong Node
@@ -506,6 +531,24 @@ public struct ScriptGenerator: Sendable {
         if path.contains("/.cursor/") { return "cursor" }
         if path.contains("/.vscode/") { return "code" }
         return nil
+    }
+
+    /// `# === Homebrew Formulae ===` → `Homebrew Formulae`.
+    static func groupLabel(fromHeader header: String) -> String {
+        var label = header
+        if label.hasPrefix("# === ") { label.removeFirst("# === ".count) }
+        if label.hasSuffix(" ===") { label.removeLast(" ===".count) }
+        return label
+    }
+
+    /// Homebrew's Python formulae are marked EXTERNALLY-MANAGED (PEP 668), so
+    /// `pip uninstall` refuses to change them. Recognised by the interpreter
+    /// path (Homebrew `opt`/`Cellar` or anything under /opt/homebrew).
+    static func isProtectedPython(_ interpreter: String?) -> Bool {
+        guard let path = interpreter else { return false }
+        return path.hasPrefix("/opt/homebrew/")
+            || path.contains("/Cellar/python@")
+            || path.contains("/opt/python@")
     }
 
     private func sectionHeader(for manager: PackageManager) -> String {
@@ -765,5 +808,44 @@ enum PipxEnvironmentIdentity {
         guard !value.isEmpty, !value.contains("/") else { return false }
         let unsafeScalars = CharacterSet.controlCharacters.union(.newlines)
         return value.unicodeScalars.allSatisfy { !unsafeScalars.contains($0) }
+    }
+}
+
+/// Where trash mode moves file-backed items: one quoted, timestamped folder
+/// under `~/.Trash`, and for each item a name taken from its own folder's
+/// basename (never from package metadata, which could contain `../`), made
+/// unique within the script.
+struct TrashPlan {
+    /// Already shell-quoted, for example `"$HOME/.Trash/installory-1710000000"`.
+    let root: String
+    /// Destination name per package id.
+    let names: [String: String]
+
+    init(root: String, packages: [Package]) {
+        self.root = root
+        var used: Set<String> = []
+        var names: [String: String] = [:]
+        for package in packages {
+            guard let source = ScriptGenerator.trashSource(for: package) else { continue }
+            let base = Self.safeName(URL(fileURLWithPath: source).lastPathComponent)
+            var candidate = base
+            var counter = 2
+            while used.contains(candidate) {
+                candidate = "\(base)-\(counter)"
+                counter += 1
+            }
+            used.insert(candidate)
+            names[package.id] = candidate
+        }
+        self.names = names
+    }
+
+    /// No path separators, no `.`/`..`, no control characters.
+    static func safeName(_ raw: String) -> String {
+        let cleaned = shellCommentText(raw)
+            .replacingOccurrences(of: "/", with: "_")
+            .trimmingCharacters(in: .whitespaces)
+        if cleaned.isEmpty || cleaned == "." || cleaned == ".." { return "item" }
+        return cleaned
     }
 }

@@ -87,7 +87,8 @@ struct RemovalVerdictRegressionTests {
 
     @Test("a library listed with a modern specifier is not safe to remove")
     func modernSpecifierKeepsDependency() {
-        let python = "/opt/homebrew/opt/python@3.14/bin/python3.14"
+        // A pyenv Python: Homebrew's own Python is protected separately (PEP 668).
+        let python = "/Users/demo/.pyenv/versions/3.12.1/bin/python3.12"
         let requires = [
             "numpy>=1.26.0; python_version >= '3.9'",
             "charset_normalizer<4,>=2",

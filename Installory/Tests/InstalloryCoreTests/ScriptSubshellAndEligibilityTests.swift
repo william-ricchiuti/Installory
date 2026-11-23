@@ -54,13 +54,35 @@ private func expectSubshellShape(_ text: String, sourceLocation: SourceLocation 
     #expect(lines.filter { $0 == "(" }.count == 1, sourceLocation: sourceLocation)
 }
 
+/// Asserts the 1.6.1 cleanup-script shape: header comments at top level, then
+/// one outer `( … )` that holds every executable line. Inside it, each group of
+/// commands opens its own `(` + `set -euo pipefail` and closes with
+/// `) || failed+=("…")`, and the script ends with the failure summary.
+private func expectGroupedShape(_ text: String, groups: Int, sourceLocation: SourceLocation = #_sourceLocation) {
+    #expect(text.hasPrefix("#!/usr/bin/env bash\n"), sourceLocation: sourceLocation)
+    #expect(text.hasSuffix(")\n"), sourceLocation: sourceLocation)
+    let lines = scriptLines(text).dropLast()
+    guard let open = lines.firstIndex(of: "(") else {
+        Issue.record("no subshell opener", sourceLocation: sourceLocation)
+        return
+    }
+    for line in lines[..<open] {
+        #expect(line.hasPrefix("#"), "executable line outside subshell: \(line)", sourceLocation: sourceLocation)
+    }
+    #expect(lines[open + 1] == "failed=()", sourceLocation: sourceLocation)
+    #expect(lines.last == ")", sourceLocation: sourceLocation)
+    #expect(lines.filter { $0 == "set -euo pipefail" }.count == groups, sourceLocation: sourceLocation)
+    #expect(lines.filter { $0.hasPrefix(") || failed+=(") }.count == groups, sourceLocation: sourceLocation)
+    #expect(lines.contains("if [ ${#failed[@]} -gt 0 ]; then"), sourceLocation: sourceLocation)
+}
+
 @Suite("Generated scripts are paste-safe (subshell)")
 struct ScriptSubshellTests {
-    @Test("Empty cleanup script is header plus an empty strict subshell")
+    @Test("Empty cleanup script is header plus an empty outer subshell")
     func emptyCleanupScript() {
         let text = ScriptGenerator().generate(packages: []).scriptText
-        expectSubshellShape(text)
-        #expect(text.contains("strict mode (set -euo pipefail)"))
+        expectGroupedShape(text, groups: 0)
+        #expect(text.contains("runs in its own ( ... ) subshell"))
     }
 
     @Test("Cleanup commands, snapshot header and denylist section stay in their places")
@@ -70,7 +92,7 @@ struct ScriptSubshellTests {
             packages: [package(.brew, "jq"), package(.brew, "git")],
             snapshot: snapshot
         ).scriptText
-        expectSubshellShape(text)
+        expectGroupedShape(text, groups: 1)
 
         let lines = scriptLines(text)
         let open = lines.firstIndex(of: "(")!
@@ -90,10 +112,10 @@ struct ScriptSubshellTests {
             installPath: "/Users/x/.claude/skills/app-design"
         )
         let text = ScriptGenerator().generate(packages: [skill], strategy: .trash).scriptText
-        expectSubshellShape(text)
+        expectGroupedShape(text, groups: 1)
         let lines = scriptLines(text)
         let open = lines.firstIndex(of: "(")!
-        let mkdir = lines.firstIndex { $0.hasPrefix("mkdir -p $HOME/.Trash/installory-") }!
+        let mkdir = lines.firstIndex { $0.hasPrefix(#"mkdir -p "$HOME/.Trash/installory-"#) }!
         #expect(mkdir > open)
     }
 
@@ -118,9 +140,13 @@ struct RemovalScriptEligibilityTests {
         let text = generator.generate(packages: [pkg], strategy: strategy).scriptText
         let lines = scriptLines(text)
         guard let open = lines.firstIndex(of: "(") else { return [] }
+        // Ignore the script's own scaffolding: subshell brackets, strict mode,
+        // failure bookkeeping and the final summary.
+        let scaffolding: Set<String> = ["(", ")", "set -euo pipefail", "failed=()", "fi", "  exit 1",
+                                        "if [ ${#failed[@]} -gt 0 ]; then"]
         return lines[(open + 1)...].filter { line in
-            !line.isEmpty && !line.hasPrefix("#") && line != ")"
-                && line != "set -euo pipefail" && !line.hasPrefix("echo ")
+            !line.isEmpty && !line.hasPrefix("#") && !scaffolding.contains(line)
+                && !line.hasPrefix(") || failed+=(") && !line.trimmingCharacters(in: .whitespaces).hasPrefix("echo ")
                 && !line.hasPrefix("mkdir -p ")
         }
     }
