@@ -67,8 +67,15 @@ public struct ClaudeCodeLogCollector: Sendable {
                 return ([], report)
             }
             if budget.isTimeExpired { break }
-            let children = ((try? directoryAccess.contentsOfDirectory(at: projectDir)) ?? [])
-                .filter { $0.pathExtension == "jsonl" }
+            let entries = (try? directoryAccess.contentsOfDirectory(at: projectDir)) ?? []
+            var children = entries.filter { $0.pathExtension == "jsonl" }
+            // Subagent transcripts live in <project>/<session-id>/subagents/
+            // agent-*.jsonl; installs run by a subagent are only recorded there.
+            for sessionDir in entries where Self.isSessionDirectoryName(sessionDir.lastPathComponent) {
+                let subagents = sessionDir.appendingPathComponent("subagents", isDirectory: true)
+                children += ((try? directoryAccess.contentsOfDirectory(at: subagents)) ?? [])
+                    .filter { $0.pathExtension == "jsonl" }
+            }
             let dated = children.map { url in
                 SessionFile(url: url, projectDir: projectDir, modifiedAt: directoryAccess.modificationDate(at: url))
             }
@@ -196,6 +203,12 @@ public struct ClaudeCodeLogCollector: Sendable {
             }
         }
         return result
+    }
+
+    /// A Claude Code session folder name: a UUID such as
+    /// `6a5d6ccf-3620-464c-a381-45adafc7fc20`.
+    static func isSessionDirectoryName(_ name: String) -> Bool {
+        name.count == 36 && UUID(uuidString: name) != nil
     }
 
     // MARK: - Per-session parsing

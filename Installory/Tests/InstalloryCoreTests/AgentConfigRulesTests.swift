@@ -53,15 +53,15 @@ struct AgentConfigInstructionTests {
         #expect(files.contains { $0.kind == .windsurfRules })
     }
 
-    @Test("AGENTS.md with no CLAUDE.md → info telling the user to create one")
+    @Test("AGENTS.md with no CLAUDE.md → no finding: Claude Code reads it (v2.1.277+)")
     func agentsWithoutClaude() throws {
+        // Since Claude Code 2.1.277, a project's AGENTS.md is read when the
+        // project has no CLAUDE.md, .claude/CLAUDE.md or CLAUDE.local.md
+        // (code.claude.com/docs/en/memory, checked 2026-11-19).
         let result = audit { builder in
             builder.addFile(at: project.appendingPathComponent("AGENTS.md"), data: text("rules"))
         }
-        let finding = try #require(result.findings.first { $0.kind == .agentsMdNotReadByClaude })
-        #expect(finding.severity == .info)
-        #expect(finding.title == "Claude Code doesn't read this project's AGENTS.md")
-        #expect(finding.suggestedFix == "Create a file named CLAUDE.md next to AGENTS.md containing the single line `@AGENTS.md`.")
+        #expect(!result.findings.contains { $0.kind == .agentsMdNotReadByClaude })
     }
 
     @Test("AGENTS.md with a CLAUDE.md that doesn't import it → info with the exact line to add")

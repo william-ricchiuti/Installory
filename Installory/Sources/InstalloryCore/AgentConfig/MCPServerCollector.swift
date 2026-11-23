@@ -142,8 +142,22 @@ struct MCPServerCollector {
         disabledNames: Set<String> = []
     ) -> [MCPServerEntry] {
         guard let object = reader.readJSONObject(url, maximumBytes: limits.maximumConfigBytes) else { return [] }
-        let servers = object[key] as? [String: Any] ?? [:]
+        var servers = object[key] as? [String: Any] ?? [:]
+        if client == .opencode {
+            servers = Self.opencodeServers(in: servers)
+        }
         return self.servers(from: servers, client: client, scope: scope, file: url, disabledNames: disabledNames)
+    }
+
+    /// opencode's config moved servers from directly under `mcp` to
+    /// `mcp.servers` (opencode.ai/docs/mcp-servers, checked 2026-11-19).
+    /// Reads the new layout when present, otherwise the old one, skipping
+    /// `mcp`-level settings such as `timeout`.
+    static func opencodeServers(in mcp: [String: Any]) -> [String: Any] {
+        if let servers = mcp["servers"] as? [String: Any] {
+            return servers
+        }
+        return mcp.filter { $0.key != "servers" && $0.value is [String: Any] }
     }
 
     func servers(
