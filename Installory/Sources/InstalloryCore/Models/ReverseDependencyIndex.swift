@@ -38,8 +38,10 @@ public struct ReverseDependencyIndex: Sendable {
         for pkg in packages {
             byID[pkg.id] = pkg
             for dep in pkg.dependencies {
-                let key = Key(manager: pkg.manager, qualifier: pkg.qualifier, name: dep)
-                reverseDependents[key, default: []].append(pkg.id)
+                for scope in PackageIdentity.dependencyScopes(of: pkg) {
+                    let key = Key(manager: scope.manager, qualifier: scope.qualifier, name: dep)
+                    reverseDependents[key, default: []].append(pkg.id)
+                }
             }
         }
 

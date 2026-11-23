@@ -1,0 +1,21 @@
+{
+  "homebrew_version": "4.6.17",
+  "installed_as_dependency": false,
+  "installed_on_request": true,
+  "loaded_from_api": true,
+  "source": {
+    "tap": "homebrew/cask",
+    "tap_git_head": "abc123def456",
+    "version": "1.91.0",
+    "path": "/opt/homebrew/Library/Taps/homebrew/homebrew-cask/Casks/v/visual-studio-code.rb"
+  },
+  "time": 1720000000,
+  "arch": "arm64",
+  "runtime_dependencies": {},
+  "uninstall_artifacts": [
+    {"app": ["Visual Studio Code.app"]},
+    {"binary": ["/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"]},
+    {"zap": [{"trash": ["~/Library/Application Support/Code", "~/.vscode"], "rmdir": "~/Library/Caches/com.microsoft.VSCode"}]}
+  ],
+  "uninstall_flight_blocks": false
+}

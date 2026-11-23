@@ -1,0 +1,19 @@
+{
+  "homebrew_version": "4.6.17",
+  "installed_on_request": true,
+  "loaded_from_api": true,
+  "source": {
+    "tap": "homebrew/cask",
+    "tap_git_head": "abc123def456",
+    "version": "0.2024.06.18.08.02.stable.01",
+    "path": "/opt/homebrew/Library/Taps/homebrew/homebrew-cask/Casks/w/warp.rb"
+  },
+  "time": 1718700000,
+  "arch": "arm64",
+  "runtime_dependencies": {},
+  "uninstall_artifacts": [
+    {"app": ["Warp.app"]},
+    {"zap": [{"trash": ["~/.warp", "~/Library/Application Support/dev.warp.Warp-Stable"]}]}
+  ],
+  "uninstall_flight_blocks": false
+}
