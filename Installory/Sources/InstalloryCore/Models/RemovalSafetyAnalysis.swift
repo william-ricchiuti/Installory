@@ -42,10 +42,12 @@ public enum RemovalSafetyAnalysis {
         }
 
         // 3. Denylisted packages are commonly depended on by other software.
+        //    Say it comes from the list, not from this Mac's dependency graph,
+        //    which may show nothing using it (UX-3).
         if let reason = denylist.reason(for: package) {
             return RemovalSafetyVerdict(
                 safety: .leaveAlone,
-                reasons: ["Commonly required by other tools: \(reason)"]
+                reasons: ["On Installory\u{2019}s list of tools many others rely on: \(reason)"]
             )
         }
 

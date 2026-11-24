@@ -215,7 +215,7 @@ private struct PrivacyTab: View {
                 Button("Show Installory Data Folder\u{2026}") {
                     coordinator.revealDataFolder()
                 }
-                Text("Reveals ~/Library/Application Support/Installory in Finder. The SQLite cache and snapshots live there.")
+                Text("Opens Finder at Installory\u{2019}s folder inside its sandbox: ~/Library/Containers/app.installory.mac/Data/Library/Application Support/Installory. Scan results and snapshots are kept there.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } header: {

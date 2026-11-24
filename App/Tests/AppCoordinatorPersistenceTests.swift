@@ -1116,6 +1116,16 @@ struct AppCoordinatorPersistenceTests {
         }
     }
 
+    @Test("UX-8: sample data opens on Home")
+    func demoModeOpensHome() throws {
+        let directory = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let coordinator = AppCoordinator(dataDirectoryOverride: directory)
+        coordinator.sidebarSelection = .all
+        coordinator.enterDemoMode()
+        #expect(coordinator.sidebarSelection == .dashboard)
+    }
+
     @Test("PERF25-009: repeated derived reads reuse one inventory generation")
     func repeatedDerivedReadsUseCache() throws {
         let directory = try temporaryDirectory()

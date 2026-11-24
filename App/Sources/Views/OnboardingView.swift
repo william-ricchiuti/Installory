@@ -131,7 +131,7 @@ struct OnboardingView: View {
                 OnboardingBullet(
                     systemImage: "sparkles",
                     title: "Your AI tools",
-                    detail: "Claude Code, Codex, Cursor and opencode: their skills, extensions and what they installed."
+                    detail: "Claude Code, Claude Desktop, Codex, Cursor, VS Code and opencode: their settings, skills, extensions and what they installed."
                 )
                 OnboardingBullet(
                     systemImage: "leaf",
@@ -139,7 +139,7 @@ struct OnboardingView: View {
                     detail: "Clear verdicts, so you know what you can remove."
                 )
             }
-            Text("Small colored badges tell you which installer added each tool.")
+            Text("A colored label on each tool shows which installer added it.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

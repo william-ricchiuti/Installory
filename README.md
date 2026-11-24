@@ -24,9 +24,9 @@ The items marked *new* arrive in 1.6.0.
   look, or not checked yet, with an at-a-glance grid below:
   - **Installed tools:** how many tools you have, duplicates, and items to review.
   - **AI tools:** what your AI assistants installed and how their setup looks.
-  - **Secrets in AI tool settings:** API keys or passwords written in plain
-    text in AI tool config files.
-  - **Space:** size on disk and what is safe to free up.
+  - **API keys:** API keys or passwords written in plain text in AI tool
+    config files.
+  - **Disk space:** size on disk and what is safe to free up.
 - **AI Setup audit** *(new)*: a read-only review of your AI coding setup.
   - MCP servers declared in Claude Code, Claude Desktop, Cursor, VS Code, Codex
     and opencode, at user and project level. Flags the same server set up
@@ -38,14 +38,14 @@ The items marked *new* arrive in 1.6.0.
     instructions and Windsurf rules. Flags broken shortcuts, very large files,
     the older `.cursorrules` file, and projects whose `AGENTS.md` Claude Code
     does not read.
-  - Permissions and hooks for Claude Code and Codex: "run anything without
+  - Permissions and hooks for Claude Code, permissions for Codex: "run anything without
     asking" modes, a turned-off warning for skip-permissions mode, broad
     allow rules, commands approved with "don't ask again", commands that run
     automatically through hooks, and projects that can start their own MCP
     servers.
   - Each finding has a plain-English explanation, a suggested fix, and an
-    ask-your-agent prompt. Secret values are masked; only the key name and
-    file are shown.
+    ask-your-agent prompt. Secret values are masked: you see the key name and
+    file, and at most the first 4 characters of the value.
 - **Ask your AI assistant** *(new)*: from a package, a duplicate group, a
   cleanup selection, or a finding, copy a ready-made prompt for Claude Code,
   Codex, or any assistant. Every prompt asks the agent to explain each command
@@ -99,7 +99,9 @@ The items marked *new* arrive in 1.6.0.
 
 - **Read-only scanning:** Installory never installs, removes, or changes software.
 - **No command execution:** production code contains no subprocess calls.
-- **No runtime network:** package descriptions are bundled with the app.
+- **No runtime network:** package descriptions are bundled with the app. Links
+  in Settings open in your browser; the system rating prompt is the only thing
+  the app itself may send.
 - **Sandboxed access:** external folders require user-granted, read-only,
   security-scoped bookmarks. Read-write access applies only to a destination the
   user selects in a Save panel.
@@ -113,8 +115,9 @@ The items marked *new* arrive in 1.6.0.
 - **Local privacy:** install history is off by default, redacted before it is
   stored, and never leaves the Mac.
 
-CI enforces the no-subprocess, no-networking, entitlement and read-only
-bookmark boundaries with `scripts/check-invariants.sh`. See
+CI checks the source and the built app for subprocess, networking, file-change,
+entitlement and bookmark rules with `scripts/check-invariants.sh`. It is a
+tripwire, not a proof. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how the pieces fit together.
 
 ## Build and test

@@ -1,9 +1,44 @@
 # Installory releases
 
-## 1.6.0 (build 12) — in App Review
+## 1.6.1 (build 13) — in preparation
 
-Status: merged to `main` (PR #5), versioned 1.6.0 (12), and submitted to App
-Review (October 2026). The App Store serves 1.5 until it is approved.
+Status: the nine fix PRs from the November 2026 review are merging to `main`
+(Installory#12 to #19, then the copy and docs PR). Not yet versioned or
+submitted. Owner steps: bump to 1.6.1 (13), run the release checklist below
+with a signed build, and do the VoiceOver pass before declaring VoiceOver in
+App Store Connect.
+
+Listing changes for this version are in
+[docs/app-store-listing.md](docs/app-store-listing.md): the description drops
+the "AGENTS.md files Claude Code won't read" line and says up to 4 characters
+of a key are shown; the keyword `developer` becomes `secrets`. The website
+needs the same wording changes (a separate installory-website PR).
+
+### What's New (paste into App Store Connect)
+
+Paste the text between the rules. 1,091 characters; the App Store limit
+is 4,000.
+
+---
+
+This update makes cleanup advice safer and the AI setup check more accurate.
+
+• Safer verdicts: Python libraries that other packages need, and runtimes your other tools run on (Node, Ruby, pyenv, uv, pipx), are no longer marked safe to remove. Python packages Homebrew installed are left to Homebrew.
+• Apps installed with Homebrew (casks) now show up.
+• When macOS doesn't let Installory read a folder, it says so instead of showing the folder as empty.
+• API keys are caught in more places, and Install History no longer saves the first message of an AI session. History saved by older versions is cleaned up.
+• Installory no longer looks inside Documents, Desktop, Downloads, Pictures, Library and your other personal folders when it looks for projects.
+• Keeps up with the current Claude Code, Codex and opencode file formats.
+• Safer cleanup scripts: if one step fails, the rest still run and the script lists what failed. Names that could be misread as options are left for you to remove by hand.
+• Clearer wording, VoiceOver labels for Pin and Hide, and sample data now opens on Home.
+
+---
+
+## Shipped: 1.6.0 (build 12, 2026-10-09)
+
+Status: merged to `main` (PR #5), versioned 1.6.0 (12), approved and live on
+the Mac App Store since 2026-10-09. The signed, sandboxed home-folder check
+was done on 2026-10-07 before submission.
 
 Website: installory.app was rebuilt for 1.6 and deployed on 2026-10-07
 (installory-website PR #2). Its copy already describes 1.6, so no website
@@ -12,10 +47,10 @@ change is needed at release unless the app's wording changes.
 Do not upload a local unsigned or ad-hoc QA archive. Create a fresh distribution
 archive from the merged, clean `main` branch.
 
-### What's New (paste into App Store Connect)
+### What's New (as shipped)
 
-Paste the text between the rules. 1,050 characters; the App Store limit
-is 4,000.
+Kept for the record; the line "never the value" was inexact (up to 4
+characters are shown) and is corrected in the 1.6.1 text and listing.
 
 ---
 
@@ -34,7 +69,7 @@ If you used Install History before, Installory may ask once for your home folder
 
 ---
 
-### App Review note (draft)
+### App Review note (reuse for 1.6.1)
 
 Installory is a read-only inventory app with no networking code of its own. It scans only folders
 explicitly granted by the user through read-only security-scoped bookmarks. It
@@ -66,10 +101,10 @@ read-only access to and never modifies them.
 Reviewers can choose "Explore with Sample Data" during onboarding to evaluate
 the app without granting filesystem access.
 
-### Release checklist
+### Release checklist (used for 1.6.0; reuse for 1.6.1)
 
-1. Done: version `1.6.0`, build `12` in `project.yml` and `App/Info.plist`
-   (build numbers cannot be reused). Bundle identifier `app.installory.mac` and
+1. Owner: set version `1.6.1`, build `13` in `project.yml` and `App/Info.plist`
+   (build numbers cannot be reused; 1.6.0 used 12). Bundle identifier `app.installory.mac` and
    `ITSAppUsesNonExemptEncryption: false` unchanged. Run
    `./scripts/regenerate-xcode.sh` after pulling.
 2. Refresh the description corpus from fresh API responses using its
@@ -97,7 +132,8 @@ the app without granting filesystem access.
 8. Run Validate App, then choose Distribute App → App Store Connect → Upload.
    Resolve any signing or App Store Connect validation finding before upload.
 9. In App Store Connect, create the new macOS version, attach the new build,
-   paste the What's New and review note above, keep App Privacy at
+   paste the 1.6.1 What's New at the top of this file and the App Review note,
+   keep App Privacy at
    **Data Not Collected**, and answer export compliance consistently with the
    Info property-list declaration.
 10. Owner step: submit for review and choose the intended manual or automatic
@@ -106,20 +142,12 @@ the app without granting filesystem access.
 After release, tag the shipped commit, publish the same notes in the GitHub
 release, and move this section under "Shipped". The website already describes
 1.6. Change it only through the website repository's own reviewed deploy.
-The homepage reproduces app text (checkup rows, AI Setup findings, the copied
+The homepage paraphrases app text (checkup rows, AI Setup findings, the copied
 prompt, cleanup script format) and the privacy policy lists every file the app
 reads, so update the website whenever those change in the app.
 
 ### Known advisories
 
-- **Check the home-folder fix in a signed, sandboxed build.** 1.5.0 built
-  `~/.claude`, `~/.cargo`, `~/.nvm` and similar paths from the sandbox
-  container instead of the real home folder, so those scanners likely found
-  nothing for App Store users. This release resolves the real home folder
-  (`UserHome`). Unit tests cover it, but the end-to-end path (grant the home
-  folder in onboarding, then confirm Agent CLIs, Skills, Editor Extensions,
-  Cargo, pipx and AI Setup populate) has only been exercised in unsigned
-  local builds. Do this before submitting.
 - **Upgraders with Install History on may be asked for the home folder once.**
   1.5.0 checked the home grant against the sandbox container, so a 1.5.0
   grant may not cover the real home folder. The stored toggle is left on;

@@ -407,7 +407,8 @@ final class AppCoordinator {
         isDemoMode = true
         isScanning = false
         searchQuery = ""
-        sidebarSelection = .all
+        // Home first: the checkup is what sample data is meant to show.
+        sidebarSelection = .dashboard
         selectedPackage = nil
         isCleanupMode = false
         selectedForCleanup = []
@@ -1354,7 +1355,8 @@ final class AppCoordinator {
         UserDefaults.standard.set(false, forKey: DefaultsKey.onboardingCompleted)
     }
 
-    /// Reveals the local data directory (Application Support/Installory) in Finder
+    /// Reveals the local data directory (Application Support/Installory inside the
+    /// sandbox container) in Finder
     /// so users can see exactly what Installory persists.
     func revealDataFolder() {
         guard let dir = dataDirectory else {
