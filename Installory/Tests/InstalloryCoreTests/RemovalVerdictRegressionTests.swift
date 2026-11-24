@@ -216,6 +216,18 @@ struct RemovalVerdictRegressionTests {
         #expect(verdict(of: brewOwned, in: packages) == .leaveAlone)
     }
 
+    // MARK: - UX-3: say where an essentials verdict comes from
+
+    @Test("an essentials-list verdict names the list, not the dependency graph")
+    func essentialsVerdictNamesTheList() {
+        let ffmpeg = brew("ffmpeg")
+        let index = ReverseDependencyIndex(packages: [ffmpeg])
+        let result = RemovalSafetyAnalysis.verdict(for: ffmpeg, reverseDependencyIndex: index, orphanedIDs: [])
+        #expect(result.safety == .leaveAlone)
+        #expect(index.dependents(of: ffmpeg).isEmpty)
+        #expect(result.reasons.contains { $0.contains("Installory\u{2019}s list") })
+    }
+
     // MARK: - Guard: correct verdicts stay correct
 
     @Test("a leaf formula nothing uses is still safe")

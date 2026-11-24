@@ -79,18 +79,13 @@ struct GuidanceCheckupTests {
 
     // MARK: AI tools
 
-    @Test("AI tools: not scanned is unknown, telling the user what to grant or enable")
+    @Test("AI tools: not scanned is unknown, telling the user what to grant")
     func aiUnknown() {
         let home = row(.aiTools, CheckupInput(packageCount: 5, coverageGaps: [.homeFolderNotGranted]))
         #expect(home.status == .unknown)
         #expect(home.headline == "Not checked yet")
         #expect(home.detail.contains("Grant access to your home folder"))
         #expect(home.actionTitle == "Grant access")
-
-        let disabled = row(.aiTools, CheckupInput(packageCount: 5, coverageGaps: [.agentConfigCheckDisabled]))
-        #expect(disabled.status == .unknown)
-        #expect(disabled.detail.contains("Turn on the AI tools check"))
-        #expect(disabled.actionTitle == "Open Settings")
 
         // Not blocked but not run yet: the check runs with the next scan.
         let plain = row(.aiTools, CheckupInput(packageCount: 5))
@@ -141,15 +136,10 @@ struct GuidanceCheckupTests {
 
     @Test("Secrets: not checked is unknown, gap-aware")
     func secretsUnknown() {
-        let home = row(.secrets, CheckupInput(packageCount: 5, coverageGaps: [.homeFolderNotGranted, .secretsCheckDisabled]))
+        let home = row(.secrets, CheckupInput(packageCount: 5, coverageGaps: [.homeFolderNotGranted]))
         #expect(home.status == .unknown)
         #expect(home.detail.contains("home folder"))
         #expect(home.actionTitle == "Grant access")
-
-        let disabled = row(.secrets, CheckupInput(packageCount: 5, coverageGaps: [.secretsCheckDisabled]))
-        #expect(disabled.status == .unknown)
-        #expect(disabled.detail.contains("Turn on the secrets check"))
-        #expect(disabled.actionTitle == "Open Settings")
 
         let plain = row(.secrets, CheckupInput(packageCount: 5, coverageGaps: [.other("Downloads")]))
         #expect(plain.status == .unknown)

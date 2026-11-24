@@ -93,10 +93,6 @@ public struct CheckupFindingCounts: Sendable, Equatable, Hashable {
 public enum CheckupCoverageGap: Sendable, Equatable, Hashable {
     /// The home folder has not been granted, so per-user tools and agent config are invisible.
     case homeFolderNotGranted
-    /// AI agent configuration (skills, MCP servers) is not being checked.
-    case agentConfigCheckDisabled
-    /// The plain-text secrets check is turned off.
-    case secretsCheckDisabled
     /// Anything else; `description` is a short noun phrase shown to the user.
     case other(String)
 }
@@ -250,15 +246,6 @@ public enum Checkup {
                     action: .grantHomeAccess
                 )
             }
-            if input.coverageGaps.contains(.agentConfigCheckDisabled) {
-                return CheckupRow(
-                    area: .aiTools,
-                    status: .unknown,
-                    headline: "Not checked yet",
-                    detail: "Turn on the AI tools check in Settings to look for broken skills and misconfigured MCP servers.",
-                    action: .openSettings
-                )
-            }
             // Nothing is blocking the check; it simply hasn't run yet (the AI
             // setup check runs as part of a scan once the home folder is granted).
             let aiWeek = input.aiInstalledThisWeekCount
@@ -322,9 +309,6 @@ public enum Checkup {
             if input.coverageGaps.contains(.homeFolderNotGranted) {
                 detail = "Grant access to your home folder in Settings so Installory can look for API keys saved in plain text."
                 action = .grantHomeAccess
-            } else if input.coverageGaps.contains(.secretsCheckDisabled) {
-                detail = "Turn on the secrets check in Settings to look for API keys saved in plain text."
-                action = .openSettings
             } else {
                 // Not blocked, just not run yet: the check runs with a scan.
                 return CheckupRow(

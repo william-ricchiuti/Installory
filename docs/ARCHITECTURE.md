@@ -1,27 +1,33 @@
 # Installory architecture
 
-For engineers and reviewers. Describes the code as of 1.6.0 (build 12,
-October 2026). User-facing features are in [README.md](../README.md).
+For engineers and reviewers. Describes the code on `main` in November 2026
+(1.6.1 in progress). User-facing features are in [README.md](../README.md).
 
 ## Design rules
 
-Everything below follows four rules. CI enforces the first two mechanically.
+Everything below follows four rules. CI checks the first two in the source and
+in the built app (a tripwire, not a proof; see "Invariants and CI").
 
 1. **No subprocesses.** Production Swift never calls `Process()`. Scanners
    learn everything from files on disk; a package manager that can only be
    queried by running it is a deliberate gap.
 2. **No networking.** No `URLSession`, `URLRequest`, `Network.framework` or
-   similar. Package descriptions are bundled (`descriptions.json`). The only
-   thing that may go online is the system rating dialog (`requestReview`),
-   which macOS runs, so user-facing copy says Installory "never sends your
-   data anywhere and has no internet code of its own", not "never connects to
-   the internet".
+   similar. Package descriptions are bundled (`descriptions.json`). Links in
+   Settings open the user's browser; the system rating prompt
+   (`requestReview`), which macOS runs, is the only thing the app itself may
+   send. So user-facing copy says Installory "never sends your data anywhere
+   and has no internet code of its own", not "never connects to the
+   internet".
 3. **Read-only.** The app never installs, removes or edits anything. Cleanup is
    a generated script the user reads and runs. Writes happen only to the app's
    own database and to a destination the user picks in a Save panel.
-4. **Bounded and private.** Every file read has a byte limit. Data from shell
+4. **Bounded and private.** Reads through `DirectoryAccessProvider`'s bounded
+   readers have a byte limit; some scanner metadata reads and Saved Setup
+   import don't yet (bounded reads are planned for 1.6.2). Data from shell
    history, agent logs and AI tool configs is redacted or masked before it is
-   stored or shown.
+   stored or shown, and personal folders (Documents, Desktop, Pictures,
+   Library and others, `PersonalFolders`) are skipped when looking for
+   projects and Python environments.
 
 ## Package layout
 
@@ -34,7 +40,7 @@ Installory/                     Swift package "InstalloryCore" (no UI, no AppKit
                                 ScanInventoryReconciler, ProjectWorkspaceScanner
     Models/                     Package, RemovalSafety, duplicates, FreeUpSpace,
                                 AIAttribution, analyses
-    Persistence/                GRDB Database, Migrations (v1–v4), DAOs
+    Persistence/                GRDB Database, Migrations (v1–v6), DAOs
     Provenance/                 shell/agent-log collectors, InstallCommandDetector,
                                 ProvenanceCollector, ProvenanceRedactor,
                                 NarrativeRenderer  (user-facing name: Install History)
@@ -89,8 +95,9 @@ flowchart LR
    security-scoped bookmarks and starts access. Core code never touches
    bookmarks; it reads through `DirectoryAccessProvider`
    (`SystemDirectoryAccessProvider` in production, in-memory fakes in tests).
-   Reads take a byte limit and fail with `readLimitExceeded` rather than
-   loading an unbounded file.
+   Its bounded readers take a byte limit and fail with `readLimitExceeded`
+   rather than loading an unbounded file (not every scanner uses them yet;
+   see rule 4).
 2. **Scanners.** Each `PackageScanner` reads one manager's on-disk metadata
    (Homebrew Cellar/Caskroom receipts, `dist-info`, `package.json`, Cargo's
    `.crates2.json`, gem specs, App Store receipts, `SKILL.md`, editor extension
@@ -126,7 +133,7 @@ ShellHistoryCollector  ClaudeCodeLogCollector  CodexLogCollector  OpenCodeLogCol
                      ProvenanceCollector (bucket by manager + name,
                                    match by scope and time)
                                    |
-                     ProvenanceRedactor (credentials, home path, length caps)
+                     ProvenanceRedactor (SecretRedaction core, home path, length caps)
                                    |
                      ProvenanceDAO  -->  NarrativeRenderer / AIAttribution
 ```
@@ -159,7 +166,15 @@ anything), remote servers, literal secrets, broken instruction-file symlinks,
 oversized instruction files, `AGENTS.md` not read by Claude Code, "run any
 command without asking" modes, broad allow rules, auto-running hooks.
 
-**Secret handling.** `AgentConfigSecretMasker` masks at parse time: values
+**Secret handling.** `SecretRedaction` (Foundation) is the one shared core
+for both AI tool settings and Install History: private keys, webhook URLs,
+credentials in URLs, `Bearer`/`Basic`/`token` values, password flags
+(`curl -u`, `docker login -p`, `mysql -p`, `sshpass -p`), key/value pairs whose
+key name has a credential segment, and well-known token formats. Its
+lookaheads are bounded so a very long line stays fast. Install History never stores a session's first user message, and
+migration v6 re-redacts history saved by older versions.
+`AgentConfigSecretMasker` masks at parse time with it, and also masks the
+literal default in `${NAME:-default}` references: values
 under keys containing KEY / TOKEN / SECRET / PASSWORD / AUTH, values matching
 well-known token formats (`sk-…`, `ghp_…`, `xox…-`, `AKIA…`, JWTs and others),
 secret-looking CLI flags and URL query parameters. A masked value keeps at most
@@ -291,14 +306,14 @@ still matters.
 
 ## Testing strategy
 
-- **Core** (as of 2026-10-06: 914 tests): scanners and auditors run against
+- **Core** (as of 2026-11-23: 1,006 Swift Testing and 36 XCTest tests): scanners and auditors run against
   fixture trees through in-memory `DirectoryAccessProvider` fakes, never the
   developer's real home. AgentConfig has fixture configs for every supported
   client (`Fixtures/agent-config/`), including secrets that must come out
   masked. Other suites cover reconciliation, migrations, provenance matching
   and redaction, script output (subshell wrapping, eligibility), prompt
   guardrails and redaction, checkup rows, and `UserHome`.
-- **App** (as of 2026-10-06: 81 tests): coordinator persistence, onboarding
+- **App** (as of 2026-11-23: 92 Swift Testing and 3 XCTest tests): coordinator persistence, onboarding
   flow and access plan, Home checkup mapping, canonical directories.
 - **Manual:** a signed, sandboxed build with a real home-folder grant is the
   only way to exercise bookmarks end to end; see the hands-on step in

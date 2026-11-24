@@ -1,6 +1,7 @@
-# App Store listing (1.6.0)
+# App Store listing (1.6.1)
 
-Final text for App Store Connect, chosen by the owner on 2026-10-07. Character
+Text for App Store Connect. Chosen by the owner on 2026-10-07 for 1.6.0;
+1.6.1 corrects three description lines and one keyword (November 2026 review). Character
 counts are what App Store Connect counts (Python `len()` on the exact text).
 
 ## Name (limit 30)
@@ -23,7 +24,7 @@ Know what's on your Mac, and what your AI put there. Check your MCP servers, age
 
 ## Description (limit 4000)
 
-2,287 characters. Only the first three lines show before "more", so they
+2,313 characters. Only the first three lines show before "more", so they
 carry the pitch.
 
 ```
@@ -32,13 +33,13 @@ Know what's on your Mac, and what your AI put there.
 Installory shows what your AI coding tools installed, checks their settings for problems, and tells you what's safe to clean up. It only looks. It never changes anything.
 
 A CHECKUP IN PLAIN ENGLISH
-Home sums up your Mac in four rows: installed tools, AI tools, API keys left in plain text, and space. Each row says whether it looks good or is worth a look, and what to do next.
+Home sums up your Mac in four rows: installed tools, AI tools, API keys left in plain text, and disk space. Each row says whether it looks good or is worth a look, and what to do next.
 
 CHECK YOUR AI SETUP
 • MCP servers from Claude Code, Claude Desktop, Cursor, VS Code, Codex and opencode, in one list. See which ones are set up differently in two places, are missing their program, or connect over the internet.
-• Instruction files your agents read in every conversation, like CLAUDE.md and AGENTS.md, including AGENTS.md files Claude Code won't read.
-• Permissions and hooks that let an agent run commands without asking you.
-• API keys and passwords written into AI tool settings. You see the key name and file, never the value.
+• Instruction files your agents read in every conversation, like CLAUDE.md and AGENTS.md.
+• Permissions in Claude Code and Codex, and Claude Code hooks, that let an agent run commands without asking you.
+• API keys and passwords written into AI tool settings. You see the key name and file, and at most the first 4 characters of the value.
 
 SEE WHAT YOUR AI INSTALLED
 • Homebrew, pip, pipx, uv, npm, Cargo, RubyGems, Mac App Store apps, agent skills, AI command-line tools, and VS Code and Cursor extensions in one searchable list, each with a plain-English description.
@@ -63,15 +64,18 @@ Free and open source (MIT). Requires macOS 14 or later.
 
 ## Keywords (limit 100)
 
-`mcp,homebrew,brew,uninstall,cleanup,developer,agent,npm,pip,python,packages,disk,space,terminal` (95)
+`mcp,homebrew,brew,uninstall,cleanup,secrets,agent,npm,pip,python,packages,disk,space,terminal` (93)
+
+1.6.1 swaps `developer` for `secrets`: the Developer Tools category already
+covers "developer", and `secrets` names something the app finds.
 
 No other companies' product names (Claude, Codex, Cursor): Apple discourages
 trademarks in keywords and it can cause a rejection. The description names
 those tools where it describes what the app reads, which is allowed.
 
-## What's New in 1.6.0
+## What's New in 1.6.1
 
-Same text as in [RELEASE.md](../RELEASE.md). 1,050 characters.
+Same text as in [RELEASE.md](../RELEASE.md). 1,091 characters.
 
 ## Categories
 

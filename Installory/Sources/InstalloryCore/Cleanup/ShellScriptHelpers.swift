@@ -50,9 +50,9 @@ func shellEchoLine(for cmd: String) -> String {
 /// Explains the subshell wrapper in every generated script header.
 let shellSubshellExplanationLines = [
     "#",
-    "# Commands run inside a ( ... ) subshell so strict mode (set -euo pipefail)",
-    "# never leaks into your Terminal session if you paste this script.",
-    "# You can also save it and run: bash <file>.sh",
+    "# This script stops at the first error and can't change your Terminal",
+    "# window, even if you paste it in. You can also save it and run:",
+    "# bash <file>.sh",
 ]
 
 /// Assembles a generated script: header comments stay at the top level (readable,
@@ -79,10 +79,10 @@ func shellGroupStartMarker(label: String) -> String { "\u{1}installory-group-sta
 /// Explains the grouped layout in every generated cleanup script header.
 let shellGroupedExplanationLines = [
     "#",
-    "# Each group of commands below runs in its own ( ... ) subshell. A group stops",
-    "# at its first error, the other groups still run, and the script lists any",
-    "# group that failed at the end. Pasting this script can't change your Terminal",
-    "# session. You can also save it and run: bash <file>.sh",
+    "# This script stops at the first error in each group, still runs the other",
+    "# groups, and lists any group that failed at the end. It can't change your",
+    "# Terminal window, even if you paste it in. You can also save it and run:",
+    "# bash <file>.sh",
 ]
 
 /// Assembles a cleanup script: header comments at the top level, then one

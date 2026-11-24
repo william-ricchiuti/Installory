@@ -96,9 +96,15 @@ struct CleanupScriptSheetView: View {
     @ViewBuilder
     private var snapshotStatusLine: some View {
         if result.snapshotTaken {
-            Label("Snapshot captured before generation", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-                .font(.callout)
+            // Green on the icon only: green text on white is about 2:1 contrast.
+            Label {
+                Text("Snapshot saved, so you can undo this removal later")
+                    .foregroundStyle(.primary)
+            } icon: {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            }
+            .font(.callout)
         } else if result.snapshotFailed {
             HStack(alignment: .top, spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")

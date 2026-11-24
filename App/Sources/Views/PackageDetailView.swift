@@ -83,6 +83,7 @@ struct PackageDetailView: View {
                     .help(coordinator.isPinned(package.id)
                         ? "Unpin this package"
                         : "Pin this package to the top of the list")
+                    .accessibilityLabel(coordinator.isPinned(package.id) ? "Unpin" : "Pin")
 
                     Button {
                         coordinator.toggleHidden(package.id)
@@ -94,6 +95,7 @@ struct PackageDetailView: View {
                     .help(coordinator.isHidden(package.id)
                         ? "Unhide this package"
                         : "Hide this package from the inventory list")
+                    .accessibilityLabel(coordinator.isHidden(package.id) ? "Show in list" : "Hide from list")
                 }
                 .buttonStyle(.borderless)
             }
@@ -196,7 +198,9 @@ struct PackageDetailView: View {
 
             let directDependents = coordinator.reverseDependencyIndex.dependents(of: package)
             if directDependents.isEmpty {
-                Text("Nothing in your inventory depends directly on this package.")
+                Text(Denylist.default.isDenylisted(package)
+                    ? "Nothing installed here uses it directly. It\u{2019}s still on Installory\u{2019}s list of tools many others rely on, so leave it installed."
+                    : "Nothing installed here uses it directly.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

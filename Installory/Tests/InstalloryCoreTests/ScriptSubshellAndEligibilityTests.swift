@@ -82,7 +82,8 @@ struct ScriptSubshellTests {
     func emptyCleanupScript() {
         let text = ScriptGenerator().generate(packages: []).scriptText
         expectGroupedShape(text, groups: 0)
-        #expect(text.contains("runs in its own ( ... ) subshell"))
+        #expect(text.contains("stops at the first error in each group"))
+        #expect(!text.contains("subshell"), "the header is in plain words")
     }
 
     @Test("Cleanup commands, snapshot header and denylist section stay in their places")

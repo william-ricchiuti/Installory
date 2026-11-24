@@ -19,6 +19,7 @@ struct PackageTableRenderingTests {
 
         let coordinator = AppCoordinator(dataDirectoryOverride: dataDirectory)
         coordinator.enterDemoMode()
+        coordinator.sidebarSelection = .all
 
         let hostingView = NSHostingView(
             rootView: PackageListView()
