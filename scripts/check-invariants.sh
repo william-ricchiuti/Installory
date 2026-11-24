@@ -124,16 +124,30 @@ $linked"
     done < <(strings -a "$executable" | grep -oE 'https?://[A-Za-z0-9.-]+' | sed -E 's#^https?://##' | sort -u)
     [ -z "$bad" ] || fail "Unexpected web addresses in the built app:$bad"
 
-    # 4. Exactly the approved entitlements are signed in (when the app is signed).
-    if codesign -d "$app" >/dev/null 2>&1; then
-        local signed
-        signed="$(codesign -d --entitlements - --xml "$app" 2>/dev/null | plutil -convert json -o - - 2>/dev/null || true)"
-        if [ -n "$signed" ] && [ "$signed" != "{}" ]; then
-            for key in com.apple.security.app-sandbox com.apple.security.files.bookmarks.app-scope com.apple.security.files.user-selected.read-write; do
-                printf '%s' "$signed" | grep -q "\"$key\":true" || fail "Signed app is missing entitlement $key"
-            done
-            printf '%s' "$signed" | grep -q 'network\.client\|network\.server' && fail "Signed app has a network entitlement"
+    # 4. Entitlements. An unsigned build is only ad-hoc (linker) signed and
+    #    carries none, so there is nothing to check. Anything that does carry
+    #    entitlements, or is signed with a real identity, must have the
+    #    approved ones and no network entitlement. Decisions use exit codes,
+    #    not tool output: older plutil prints its errors on stdout.
+    local entitlements_file signature
+    entitlements_file="$(mktemp -t installory-entitlements)"
+    # shellcheck disable=SC2064 # expand the path now
+    trap "rm -f '$entitlements_file'" EXIT
+    codesign -d --entitlements - --xml "$app" >"$entitlements_file" 2>/dev/null || : >"$entitlements_file"
+    if [ -s "$entitlements_file" ] && plutil -lint -s "$entitlements_file" >/dev/null 2>&1; then
+        for key in com.apple.security.app-sandbox com.apple.security.files.bookmarks.app-scope com.apple.security.files.user-selected.read-write; do
+            [ "$(/usr/libexec/PlistBuddy -c "Print :$key" "$entitlements_file" 2>/dev/null)" = "true" ] \
+                || fail "Signed app is missing entitlement $key"
+        done
+        if grep -q 'com\.apple\.security\.network\.' "$entitlements_file"; then
+            fail "Signed app has a network entitlement"
         fi
+    elif signature="$(codesign -dv "$app" 2>&1)" && ! grep -q '^Signature=adhoc' <<<"$signature"; then
+        # Captured first: grep -q closing a pipe early would fail codesign
+        # with SIGPIPE under pipefail.
+        fail "Signed app has no entitlements; it must be sandboxed"
+    else
+        echo "  Unsigned (ad-hoc) build without entitlements: entitlement check skipped"
     fi
 
     echo "✓ Built app passes the binary checks: $app"
@@ -216,7 +230,7 @@ bookmark_sites="$(code_matches 'bookmarkData[[:space:]]*\(' | sed '/^$/d')"
 bookmark_count="$(printf '%s\n' "$bookmark_sites" | sed '/^$/d' | wc -l | tr -d ' ')"
 [ "$bookmark_count" -eq 1 ] || fail "Expected exactly one bookmarkData( call site, found $bookmark_count:
 $bookmark_sites"
-printf '%s\n' "$bookmark_sites" | grep -q '^App/Sources/FolderAccessManager.swift:' || \
+grep -q '^App/Sources/FolderAccessManager.swift:' <<<"$bookmark_sites" || \
     fail "bookmarkData( must only be called in App/Sources/FolderAccessManager.swift"
 matches_pattern '\.securityScopeAllowOnlyReadAccess' App/Sources/FolderAccessManager.swift || \
     fail "Scanning bookmarks must retain securityScopeAllowOnlyReadAccess"
