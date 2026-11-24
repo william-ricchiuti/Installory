@@ -37,6 +37,15 @@ jobs:
         working-directory: Installory
         run: swift test --no-parallel --disable-xctest
 
+      # Generated cleanup scripts are written (never run) and linted.
+      - name: Lint generated scripts with shellcheck
+        working-directory: Installory
+        run: |
+          INSTALLORY_SCRIPT_SAMPLES_DIR="$RUNNER_TEMP/scripts" \
+            swift test --disable-xctest --filter GeneratedScriptSamplesTests
+          command -v shellcheck >/dev/null || brew install shellcheck
+          shellcheck -S warning "$RUNNER_TEMP"/scripts/*.sh
+
   app:
     name: InstalloryApp
     runs-on: macos-15
@@ -67,17 +76,30 @@ jobs:
       - name: Verify generated product invariants
         run: ./scripts/check-invariants.sh
 
+      # xcodebuild relaunches a crashed test host and can still report
+      # success (newer Xcode versions don't even log it), so the step also
+      # fails on a restart line or on a new Installory crash report.
       - name: Test app (Debug)
-        run: >-
-          xcodebuild
-          -project Installory.xcodeproj
-          -scheme Installory
-          -configuration Debug
-          -destination 'platform=macOS'
-          -parallel-testing-enabled NO
-          CODE_SIGNING_ALLOWED=NO
-          CODE_SIGNING_REQUIRED=NO
-          test
+        run: |
+          set -o pipefail
+          crash_dir="$HOME/Library/Logs/DiagnosticReports"
+          touch "$RUNNER_TEMP/app-test-start"
+          xcodebuild \
+            -project Installory.xcodeproj \
+            -scheme Installory \
+            -configuration Debug \
+            -destination 'platform=macOS' \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            test 2>&1 | tee "$RUNNER_TEMP/app-test.log"
+          sleep 5 # crash reports are written a moment after the process dies
+          crashes=$(find "$crash_dir" -name 'Installory*' -newer "$RUNNER_TEMP/app-test-start" 2>/dev/null || true)
+          if grep -q "Restarting after unexpected exit" "$RUNNER_TEMP/app-test.log" || [ -n "$crashes" ]; then
+            echo "::error::The app test host crashed during the run, even though xcodebuild may report success."
+            echo "$crashes"
+            exit 1
+          fi
 
       - name: Build app (Release)
         run: >-
@@ -86,6 +108,13 @@ jobs:
           -scheme Installory
           -configuration Release
           -destination 'platform=macOS'
+          -derivedDataPath "$RUNNER_TEMP/DerivedData"
           CODE_SIGNING_ALLOWED=NO
           CODE_SIGNING_REQUIRED=NO
           build
+
+      # What the compiled app imports, links and embeds: no subprocess,
+      # socket or URL-loading symbols, no network frameworks, allowed web
+      # addresses only.
+      - name: Check the built app's invariants
+        run: ./scripts/check-invariants.sh --binary "$RUNNER_TEMP/DerivedData/Build/Products/Release/Installory.app"

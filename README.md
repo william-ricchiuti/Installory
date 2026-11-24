@@ -164,6 +164,9 @@ Check the product invariants:
 ./scripts/check-invariants.sh
 ```
 
+Add `--binary <path to Installory.app>` to also check what a built app imports,
+links and embeds.
+
 The offline description corpus has its own
 [maintenance runbook](scripts/generate-descriptions/README.md).
 

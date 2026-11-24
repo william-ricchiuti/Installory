@@ -76,7 +76,8 @@ the app without granting filesystem access.
    [runbook](scripts/generate-descriptions/README.md). If it changes, rerun every
    verification gate.
 3. Run the Core and app commands in [README.md](README.md), the description-tool
-   tests, `scripts/check-invariants.sh`, and an unsigned Release build. Require a
+   tests, `scripts/check-invariants.sh`, and an unsigned Release build, then
+   `scripts/check-invariants.sh --binary` on that build. Require a
    clean worktree and green pull-request CI before merging to `main`.
 4. Hands-on check of the new surfaces with a real home-folder grant in a signed,
    sandboxed build: onboarding, Home checkup, AI Setup findings (including a
