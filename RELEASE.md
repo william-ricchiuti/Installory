@@ -2,11 +2,11 @@
 
 ## 1.6.1 (build 13) — in preparation
 
-Status: the nine fix PRs from the November 2026 review are merging to `main`
-(Installory#12 to #19, then the copy and docs PR). Not yet versioned or
-submitted. Owner steps: bump to 1.6.1 (13), run the release checklist below
-with a signed build, and do the VoiceOver pass before declaring VoiceOver in
-App Store Connect.
+Status: the nine fix PRs from the November 2026 review are merged to `main`
+(Installory#12 to #20) and the version is 1.6.1 (13). Not yet submitted.
+Owner steps: run the release checklist below with a signed distribution
+build, and do the VoiceOver pass before declaring VoiceOver in App Store
+Connect.
 
 Listing changes for this version are in
 [docs/app-store-listing.md](docs/app-store-listing.md): the description drops
@@ -103,7 +103,7 @@ the app without granting filesystem access.
 
 ### Release checklist (used for 1.6.0; reuse for 1.6.1)
 
-1. Owner: set version `1.6.1`, build `13` in `project.yml` and `App/Info.plist`
+1. Done: version `1.6.1`, build `13` in `project.yml` and `App/Info.plist`
    (build numbers cannot be reused; 1.6.0 used 12). Bundle identifier `app.installory.mac` and
    `ITSAppUsesNonExemptEncryption: false` unchanged. Run
    `./scripts/regenerate-xcode.sh` after pulling.
